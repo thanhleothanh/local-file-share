@@ -93,7 +93,7 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 | 012 | Error Handling and Recovery | PRD-005 | 001, 005 | AFK | done |
 | 013 | Cross-Browser Testing and Validation | PRD-005 | 010 | HITL | pending |
 | 014 | Performance and Stress Testing | PRD-005 | 010 | HITL | pending |
-| 015 | Unit and Integration Tests | PRD-005 | 001-005 | AFK | pending |
+| 015 | Unit and Integration Tests | PRD-005 | 001-005 | AFK | partial |
 | 016 | End-to-End Tests | PRD-005 | 010 | HITL | pending |
 
 ## Key Statistics
@@ -107,9 +107,9 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 - **Testing**: 4 issues (012-016)
 - **Integration**: 1 issue (010)
 - **Completed**: 12 (ISSUE-001, ISSUE-002, ISSUE-003, ISSUE-004, ISSUE-005, ISSUE-006, ISSUE-007, ISSUE-008, ISSUE-009, ISSUE-010, ISSUE-011, ISSUE-012)
-- **Partial**: 0
+- **Partial**: 1 (ISSUE-015)
 - **In Progress**: 0
-- **Pending**: 4
+- **Pending**: 3
 
 ## Vertical Slice Principles
 

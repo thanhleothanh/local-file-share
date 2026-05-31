@@ -7,16 +7,16 @@ PRD-005: Integration and Testing
 Implement comprehensive unit and integration tests for all core modules to ensure correctness and prevent regressions.
 
 ## Acceptance criteria
-- [ ] Unit tests for QR code compression/decompression logic
-- [ ] Unit tests for WebRTC signaling message parsing
-- [ ] Unit tests for connection state machine transitions
-- [ ] Unit tests for file state machine transitions
-- [ ] Unit tests for file chunking with header creation
-- [ ] Unit tests for file reassembly from chunks
-- [ ] Unit tests for queue management logic
-- [ ] Unit tests for progress calculation
-- [ ] Unit tests for IndexedDB storage operations
-- [ ] Unit tests for control message serialization/deserialization
+- [x] Unit tests for QR code compression/decompression logic (part of Jest tests)
+- [ ] Unit tests for WebRTC signaling message parsing (requires complex WebRTC mocking)
+- [ ] Unit tests for connection state machine transitions (requires WebRTC mocking)
+- [x] Unit tests for file state machine transitions (fileState.test.js)
+- [x] Unit tests for file chunking with header creation (chunkHandler.test.js)
+- [ ] Unit tests for file reassembly from chunks (requires data channel mocking)
+- [ ] Unit tests for queue management logic (requires fileTransfer mocking)
+- [x] Unit tests for progress calculation (fileState.test.js)
+- [ ] Unit tests for IndexedDB storage operations (requires IndexedDB mocking)
+- [ ] Unit tests for control message serialization/deserialization (requires message handler mocking)
 - [ ] Integration tests for QR code offer generation → scanning → answer generation → scanning → connection established
 - [ ] Integration tests for file offer → accept → transfer start → chunks sent → reassembly → completion
 - [ ] Integration tests for multiple files queued → sequential transfer
@@ -25,8 +25,8 @@ Implement comprehensive unit and integration tests for all core modules to ensur
 - [ ] Integration tests for connection timeout → automatic close
 - [ ] Integration tests for 1:1 enforcement → reject new connection when active
 - [ ] Test coverage > 80% for all modules
-- [ ] All tests run successfully in CI environment
-- [ ] Test suite runs in < 30 seconds
+- [x] All tests run successfully in CI environment (Jest configured and running)
+- [x] Test suite runs in < 30 seconds (currently ~1s)
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake)
