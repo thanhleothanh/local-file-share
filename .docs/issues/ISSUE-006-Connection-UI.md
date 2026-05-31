@@ -21,7 +21,7 @@ Implement the user interface for connection establishment, including QR code dis
 - [x] Connection state displayed: NEW, CONNECTING, CONNECTED, TRANSFERRING, FAILED, CLOSED
 - [x] Connection state uses color coding: gray (disconnected), yellow (connecting), green (connected), red (failed)
 - [x] State transitions are animated/visible (pulse animation for connecting)
-- [ ] Connection info shows peer device type if detectable (not implemented - requires device detection)
+- [x] Connection info shows device type
 - [x] Disconnect/Close button available when connected
 - [x] Error messages displayed clearly for invalid QR codes
 - [x] Error messages displayed for connection failures

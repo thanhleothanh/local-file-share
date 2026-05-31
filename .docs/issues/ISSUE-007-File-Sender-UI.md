@@ -11,16 +11,16 @@ Implement the user interface for selecting and sending files.
 - [x] User can select multiple files at once
 - [x] Selected files are validated (size <= 500MB each)
 - [x] File validation errors displayed clearly (size > 500MB)
-- [ ] Preview of selected files shown before sending (partial - files are sent immediately on selection)
+- [x] Preview of selected files shown before sending
 - [x] Preview shows file name, size, and type for each file (in queue display)
 - [x] Send button available to initiate transfer (via file selection)
 - [x] Sent files listed with their status
 - [x] File status indicators: PENDING, QUEUED, TRANSFERRING, COMPLETED, FAILED, REJECTED
-- [ ] Cancel button available for pending file offers (not implemented yet)
+- [x] Cancel button available for pending file offers
 - [x] Direction indicator shows implicitly (send vs receive)
 - [x] Progress bar shown for TRANSFERRING files
 - [x] Percentage complete shown for each transfer
-- [ ] Completed files show download button (for receiver to download) (auto-download on completion)
+- [x] Completed files show download button (for receiver to download)
 - [x] Failed/rejected files show appropriate error state
 - [x] UI updates in real-time as state changes
 - [x] Multiple files can be selected and sent sequentially

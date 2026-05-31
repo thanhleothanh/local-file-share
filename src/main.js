@@ -37,13 +37,14 @@ const selectFilesBtn = document.getElementById('selectFilesBtn');
 const filesAlert = document.getElementById('filesAlert');
 const fileSendProgress = document.getElementById('fileSendProgress');
 const sendingFileName = document.getElementById('sendingFileName');
-const sendProgress = document.getElementById('sendProgress');
+const sendProgressBar = document.getElementById('sendProgressBar');
 const sendProgressText = document.getElementById('sendProgressText');
+const filePreview = document.getElementById('filePreview');
+const previewFileList = document.getElementById('previewFileList');
+const confirmSendBtn = document.getElementById('confirmSendBtn');
+const cancelPreviewBtn = document.getElementById('cancelPreviewBtn');
 const pendingOffers = document.getElementById('pendingOffers');
-const offerFileName = document.getElementById('offerFileName');
-const offerFileSize = document.getElementById('offerFileSize');
-const acceptFileBtn = document.getElementById('acceptFileBtn');
-const rejectFileBtn = document.getElementById('rejectFileBtn');
+const pendingOffersList = document.getElementById('pendingOffersList');
 const fileQueue = document.getElementById('fileQueue');
 const queueStatus = document.getElementById('queueStatus');
 const noConnectionFilesMsg = document.getElementById('noConnectionFilesMsg');
@@ -52,7 +53,7 @@ const noConnectionFilesMsg = document.getElementById('noConnectionFilesMsg');
 let currentScanMode = null; // 'OFFER' or 'ANSWER'
 let offerQRData = null;
 let currentSendingFile = null;
-let pendingOfferFile = null; // Currently displayed pending offer
+let pendingFiles = []; // Files selected but not yet sent (for preview)
 
 /**
  * Format file size for display
@@ -64,6 +65,47 @@ function formatFileSize(bytes) {
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+/**
+ * Detect device type from user agent
+ * @returns {string} Device type description
+ */
+function detectDeviceType() {
+    const userAgent = navigator.userAgent.toLowerCase();
+    
+    if (/mobile|android|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent)) {
+        if (/ipad|tablet|playbook|silk|kindle/i.test(userAgent)) {
+            return 'Tablet';
+        }
+        return 'Mobile';
+    }
+    
+    if (/macintosh|mac os x/i.test(userAgent)) {
+        return 'Mac';
+    }
+    
+    if (/windows/i.test(userAgent)) {
+        return 'Windows';
+    }
+    
+    if (/linux/i.test(userAgent)) {
+        return 'Linux';
+    }
+    
+    return 'Unknown';
+}
+
+/**
+ * Get current device type
+ * @returns {string}
+ */
+function getDeviceType() {
+    // Check if we have cached device type
+    if (!window.deviceTypeCache) {
+        window.deviceTypeCache = detectDeviceType();
+    }
+    return window.deviceTypeCache;
 }
 
 /**
@@ -123,6 +165,14 @@ function updateUI() {
         connIdDisplay.textContent = info.connId;
         connSecretDisplay.textContent = info.secret || 'N/A';
         connStateDisplay.textContent = state;
+        
+        // Show device type (ISSUE-006)
+        const deviceType = getDeviceType();
+        const deviceTypeDisplay = document.getElementById('connDeviceTypeDisplay');
+        if (deviceTypeDisplay) {
+            deviceTypeDisplay.textContent = deviceType;
+        }
+        
         connectionInfo.style.display = 'block';
     } else {
         connectionInfo.style.display = 'none';
@@ -165,16 +215,31 @@ function updateFileQueueUI() {
         queueStatus.style.display = 'none';
     }
     
-    // Update pending offers display
-    if (pending.length > 0) {
-        const firstPending = pending[0];
-        offerFileName.textContent = '← ' + firstPending.name;
-        offerFileSize.textContent = formatFileSize(firstPending.size);
+    // Update pending offers display (ISSUE-008: multiple offers)
+    const receivedPending = pending.filter(f => f.direction === 'receive');
+    if (receivedPending.length > 0) {
+        let html = '';
+        for (const file of receivedPending) {
+            html += `
+                <div style="padding: 0.5rem; border-bottom: 1px solid var(--bg-secondary); margin-bottom: 0.5rem;" data-file-id="${file.fileId}">
+                    <p style="margin: 0; font-size: 0.9rem;">
+                        <strong>← ${file.name}</strong> (${formatFileSize(file.size)})
+                    </p>
+                    <div class="qr-actions" style="margin-top: 0.5rem;">
+                        <button class="btn btn-primary" onclick="acceptFileOffer('${file.fileId}')" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+                            Accept
+                        </button>
+                        <button class="btn btn-danger" onclick="rejectFileOffer('${file.fileId}')" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+                            Reject
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        pendingOffersList.innerHTML = html;
         pendingOffers.style.display = 'block';
-        pendingOfferFile = firstPending;
     } else {
         pendingOffers.style.display = 'none';
-        pendingOfferFile = null;
     }
     
     // Update file queue list
@@ -191,6 +256,12 @@ function updateFileQueueUI() {
             // Show download button for completed received files
             const isCompletedReceive = file.state === 'COMPLETED' && file.direction === 'receive';
             
+            const isCompleted = file.state === 'COMPLETED';
+            const isFailed = file.state === 'FAILED';
+            const isRejected = file.state === 'REJECTED';
+            const isPending = file.state === 'PENDING';
+            const isSender = file.direction === 'send';
+            
             html += `
                 <div style="padding: 0.5rem; border-bottom: 1px solid var(--bg-secondary);" data-file-id="${file.fileId}">
                     <p style="margin: 0; font-size: 0.9rem;">
@@ -199,14 +270,34 @@ function updateFileQueueUI() {
                         <span style="color: var(--text-secondary); float: right;">${directionText} - ${state}</span>
                     </p>
                     ${progress > 0 && progress < 100 ? `
-                        <progress value="${progress}" max="100" style="width: 100%; margin-top: 0.25rem;"></progress>
-                        <span style="font-size: 0.8rem; color: var(--text-secondary);">${progress}%</span>
+                        <div class="custom-progress-container" style="margin-top: 0.25rem;">
+                            <div class="custom-progress-bar" style="width: ${progress}%;">
+                                <span class="custom-progress-text">${progress}%</span>
+                            </div>
+                        </div>
                     ` : ''}
-                    ${isCompletedReceive ? `
+                    ${isCompleted ? `
+                        <div style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="color: var(--success); font-size: 1.2rem;">✓</span>
+                            <span style="color: var(--success); font-size: 0.85rem;">Downloaded</span>
+                            ${isCompletedReceive ? `
+                                <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;" onclick="downloadFile('${file.fileId}')">
+                                    Download
+                                </button>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                    ${isPending && isSender ? `
                         <div style="margin-top: 0.5rem;">
-                            <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;" onclick="downloadFile('${file.fileId}')">
-                                Download
+                            <button class="btn btn-danger" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;" onclick="cancelFileOffer('${file.fileId}')">
+                                Cancel
                             </button>
+                        </div>
+                    ` : ''}
+                    ${isFailed || isRejected ? `
+                        <div style="margin-top: 0.5rem;">
+                            <span style="color: var(--error); font-size: 1.2rem;">✗</span>
+                            <span style="color: var(--error); font-size: 0.85rem;">${state}</span>
                         </div>
                     ` : ''}
                 </div>
@@ -423,27 +514,115 @@ async function handleFileSelection(event) {
     const files = Array.from(event.target.files);
     if (files.length === 0) return;
     
-    // Select files for transfer
+    // Validate files first
+    const validFiles = files.filter(f => f.size <= 500 * 1024 * 1024);
+    
+    if (validFiles.length === 0) {
+        showFilesAlert('No valid files selected (check file size - max 500MB)', 'error');
+        event.target.value = '';
+        return;
+    }
+    
+    if (validFiles.length < files.length) {
+        showFilesAlert(`${files.length - validFiles.length} file(s) skipped (too large)`, 'error');
+    }
+    
+    // Store pending files for preview
+    pendingFiles = validFiles;
+    
+    // Show preview
+    showFilePreview();
+    
+    // Reset file input
+    event.target.value = '';
+}
+
+/**
+ * Show file preview UI
+ */
+function showFilePreview() {
+    if (pendingFiles.length === 0) {
+        filePreview.style.display = 'none';
+        return;
+    }
+    
+    // Build preview HTML
+    let html = '';
+    for (const file of pendingFiles) {
+        html += `
+            <div style="padding: 0.25rem; border-bottom: 1px solid var(--bg-secondary); font-size: 0.85rem;">
+                <span style="color: var(--accent);">📄</span>
+                <strong>${file.name}</strong> (${formatFileSize(file.size)})
+            </div>
+        `;
+    }
+    previewFileList.innerHTML = html;
+    
+    // Show preview section
+    filePreview.style.display = 'block';
+    confirmSendBtn.style.display = 'inline-flex';
+    cancelPreviewBtn.style.display = 'inline-flex';
+    selectFilesBtn.disabled = true;
+}
+
+/**
+ * Confirm and send previewed files
+ */
+async function confirmSendFiles() {
+    if (pendingFiles.length === 0) return;
+    
     try {
-        const fileTransfers = await fileTransferManager.selectFiles(files);
+        // Select files without sending immediately (for preview)
+        const fileTransfers = await fileTransferManager.selectFiles(pendingFiles, { sendImmediately: false });
         
         if (fileTransfers.length > 0) {
-            showFilesAlert(`${fileTransfers.length} file(s) selected for transfer`, 'success');
+            // Now send the offers
+            fileTransferManager.sendFileOffers(fileTransfers);
+            showFilesAlert(`${fileTransfers.length} file(s) sent for transfer`, 'success');
             
             // Start sending first file
             const firstFile = fileTransfers[0];
             await startSendingFile(firstFile);
         } else {
-            showFilesAlert('No valid files selected (check file size)', 'error');
+            showFilesAlert('No valid files to send', 'error');
         }
+        
+        // Clear preview
+        cancelFilePreview();
+        updateUI();
     } catch (error) {
-        console.error('Failed to select files:', error);
-        showFilesAlert('Failed to select files: ' + error.message, 'error');
+        console.error('Failed to send files:', error);
+        showFilesAlert('Failed to send files: ' + error.message, 'error');
     }
-    
-    // Reset file input
-    event.target.value = '';
-    updateUI();
+}
+
+/**
+ * Cancel file preview
+ */
+async function cancelFilePreview() {
+    // Clear any files that were created but not sent
+    // Note: Since we haven't called selectFiles yet in this flow, 
+    // pendingFiles are just File objects, not FileTransfer objects
+    pendingFiles = [];
+    filePreview.style.display = 'none';
+    confirmSendBtn.style.display = 'none';
+    cancelPreviewBtn.style.display = 'none';
+    selectFilesBtn.disabled = false;
+}
+
+/**
+ * Cancel a pending file offer (sender side)
+ * @param {string} fileId - File ID to cancel
+ */
+async function cancelFileOffer(fileId) {
+    try {
+        await fileTransferManager.sendFileCancel(fileId);
+        showFilesAlert('File offer cancelled', 'success');
+        updateUI();
+    } catch (error) {
+        console.error('Failed to cancel file offer:', error);
+        showFilesAlert('Failed to cancel: ' + error.message, 'error');
+    }
 }
 
 /**
@@ -474,35 +653,52 @@ async function startSendingFile(fileTransfer) {
 }
 
 /**
- * Accept a file offer
+ * Update send progress UI
+ * @param {number} progress - Progress percentage (0-100)
  */
-async function acceptFileOffer() {
-    if (pendingOfferFile) {
+function updateSendProgress(progress) {
+    if (sendProgressBar) {
+        sendProgressBar.style.width = progress + '%';
+    }
+    if (sendProgressText) {
+        sendProgressText.textContent = progress + '%';
+    }
+}
+
+/**
+ * Accept a file offer
+ * @param {string} fileId - File ID to accept
+ */
+async function acceptFileOffer(fileId) {
+    if (fileId) {
         try {
-            await fileTransferManager.sendFileAccept(pendingOfferFile.fileId);
-            showFilesAlert(`Accepted: ${pendingOfferFile.name}`, 'success');
+            const file = fileTransferManager.getFile(fileId);
+            if (file) {
+                await fileTransferManager.sendFileAccept(fileId);
+                showFilesAlert(`Accepted: ${file.name}`, 'success');
+            }
         } catch (error) {
             showFilesAlert(`Failed to accept: ${error.message}`, 'error');
         }
-        pendingOfferFile = null;
-        pendingOffers.style.display = 'none';
         updateUI();
     }
 }
 
 /**
  * Reject a file offer
+ * @param {string} fileId - File ID to reject
  */
-async function rejectFileOffer() {
-    if (pendingOfferFile) {
+async function rejectFileOffer(fileId) {
+    if (fileId) {
         try {
-            await fileTransferManager.sendFileReject(pendingOfferFile.fileId, 'USER_REJECTED');
-            showFilesAlert(`Rejected: ${pendingOfferFile.name}`, 'success');
+            const file = fileTransferManager.getFile(fileId);
+            if (file) {
+                await fileTransferManager.sendFileReject(fileId, 'USER_REJECTED');
+                showFilesAlert(`Rejected: ${file.name}`, 'success');
+            }
         } catch (error) {
             showFilesAlert(`Failed to reject: ${error.message}`, 'error');
         }
-        pendingOfferFile = null;
-        pendingOffers.style.display = 'none';
         updateUI();
     }
 }
@@ -620,6 +816,12 @@ function setupModuleListeners() {
     fileTransferManager.on('fileProgress', (file) => {
         // Update UI to show progress
         updateUI();
+        
+        // If this is the currently sending file, update the send progress bar
+        if (currentSendingFile && currentSendingFile.fileId === file.fileId) {
+            const progress = file.getProgress ? file.getProgress() : 0;
+            updateSendProgress(progress);
+        }
     });
     
     fileTransferManager.on('fileTransferFailed', (file) => {

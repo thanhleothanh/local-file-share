@@ -16,13 +16,13 @@ Implement the progress tracking and queue display UI components.
 - [x] Queue badge shows number of files waiting (e.g., "3 files waiting")
 - [x] Queue badge shows total queue size in MB
 - [x] Queue indicator updates in real-time as files are added/removed
-- [ ] Completed files show checkmark when downloaded (download button provided instead)
-- [ ] Completed files show "Downloaded" text or similar (download button provided instead)
+- [x] Completed files show checkmark when downloaded
+- [x] Completed files show "Downloaded" text
 - [x] Failed files show error state with red indicator
 - [x] Rejected files show rejected state
 - [x] Transfer list is scrollable for many files
 - [x] Progress bars are horizontally oriented
-- [ ] Percentage text is centered in progress bar (shown below bar for now)
+- [x] Percentage text is centered in progress bar
 - [x] Download button appears immediately at 100% completion
 
 ## Blocked by

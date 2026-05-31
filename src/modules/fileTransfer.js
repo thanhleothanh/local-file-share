@@ -307,9 +307,12 @@ export class FileTransferManager {
     /**
      * Select files to send
      * @param {FileList|Array} fileList - Files to send
+     * @param {Object} options - Options for selection
+     * @param {boolean} options.sendImmediately - Whether to send offers immediately (default: true)
      * @returns {Promise<Array<FileTransfer>>} Created file transfers
      */
-    async selectFiles(fileList) {
+    async selectFiles(fileList, options = {}) {
+        const { sendImmediately = true } = options;
         const files = [];
         const currentConn = webrtcManager.getConnectionInfo();
         
@@ -371,13 +374,25 @@ export class FileTransferManager {
                 errorHandler.handleStorageError(error, { operation: 'selectFiles', fileId: file.fileId });
             }
             
-            // Send FILE_OFFER message (ADR-0013)
-            this.sendFileOffer(file);
+            // Send FILE_OFFER message only if requested (ADR-0013)
+            if (sendImmediately) {
+                this.sendFileOffer(file);
+            }
 
             files.push(file);
         }
 
         return files;
+    }
+
+    /**
+     * Send file offers for already selected files
+     * @param {Array<FileTransfer>} files - Files to send offers for
+     */
+    sendFileOffers(files) {
+        for (const file of files) {
+            this.sendFileOffer(file);
+        }
     }
 
     /**
@@ -471,6 +486,14 @@ export class FileTransferManager {
      * @param {string} fileId - File ID to cancel
      */
     async sendFileCancelled(fileId) {
+        await this.sendFileCancel(fileId);
+    }
+
+    /**
+     * Send CANCELLED message to cancel a pending file offer
+     * @param {string} fileId - File ID to cancel
+     */
+    async sendFileCancel(fileId) {
         const file = this.files.get(fileId);
         if (!file) {
             console.error('Cannot cancel unknown file:', fileId);

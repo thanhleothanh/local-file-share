@@ -11,17 +11,17 @@ Implement the user interface for receiving files, including offer notifications,
 - [x] Notification shows file details: name, size, type
 - [x] Accept button available for each file offer
 - [x] Reject button available for each file offer
-- [ ] Multiple file offers can be displayed simultaneously (currently only shows one at a time)
+- [x] Multiple file offers can be displayed simultaneously
 - [x] Received files listed with progress (status shown)
 - [x] Direction indicator shows implicitly (receive)
 - [x] Progress bar shown for TRANSFERRING files
 - [x] Percentage complete shown for each transfer
 - [x] Download button appears as auto-download on completion
 - [x] Download button downloads the complete file to device
-- [ ] Downloaded files show checkmark or "Downloaded" text (auto-download, no persistent display)
+- [x] Downloaded files show checkmark or "Downloaded" text
 - [x] Downloaded files are automatically cleaned up from storage (chunks cleaned up after assembly)
-- [ ] Visual indicator of download completion (checkmark icon) (not implemented)
-- [ ] Queue indicator shows number and total size of queued files (not implemented)
+- [x] Visual indicator of download completion (checkmark icon)
+- [x] Queue indicator shows number and total size of queued files
 - [x] Queue status updates in real-time
 
 ## Blocked by

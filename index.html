@@ -131,6 +131,33 @@
             border-radius: 4px;
         }
         
+        /* Custom progress bar with centered percentage */
+        .custom-progress-container {
+            position: relative;
+            width: 100%;
+            height: 24px;
+            background-color: var(--bg-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .custom-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success), var(--accent));
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .custom-progress-text {
+            color: #000;
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+        
         /* Loading indicator */
         .loading-overlay {
             position: fixed;
@@ -394,6 +421,7 @@
                     <p><strong>Connection ID:</strong> <code id="connIdDisplay"></code></p>
                     <p><strong>Secret:</strong> <code id="connSecretDisplay"></code></p>
                     <p><strong>State:</strong> <code id="connStateDisplay"></code></p>
+                    <p><strong>Device Type:</strong> <code id="connDeviceTypeDisplay"></code></p>
                 </div>
             </div>
             
@@ -410,21 +438,33 @@
                             Select Files to Send
                         </button>
                     </div>
+                    <div id="filePreview" style="display: none; margin-top: 1rem;">
+                        <h4>Preview Selected Files</h4>
+                        <div id="previewFileList" style="max-height: 150px; overflow-y: auto; margin-bottom: 0.5rem;"></div>
+                        <div class="qr-actions">
+                            <button class="btn btn-primary" id="confirmSendBtn" onclick="confirmSendFiles()" style="display: none;">
+                                Send Files
+                            </button>
+                            <button class="btn btn-danger" id="cancelPreviewBtn" onclick="cancelFilePreview()" style="display: none;">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
                     <div id="fileSendProgress" style="display: none; margin-top: 1rem;">
                         <p><strong>Sending:</strong> <span id="sendingFileName"></span></p>
-                        <progress id="sendProgress" value="0" max="100" style="width: 100%;"></progress>
-                        <span id="sendProgressText">0%</span>
+                        <div class="custom-progress-container" style="margin-top: 0.5rem;">
+                            <div id="sendProgressBar" class="custom-progress-bar" style="width: 0%;">
+                                <span id="sendProgressText">0%</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
                 <div class="section">
                     <h3>Incoming Files</h3>
                     <div id="pendingOffers" style="display: none;">
-                        <p><strong>Incoming offer:</strong> <span id="offerFileName"></span> (<span id="offerFileSize"></span>)</p>
-                        <div class="qr-actions">
-                            <button class="btn btn-primary" id="acceptFileBtn" onclick="acceptFileOffer()">Accept</button>
-                            <button class="btn btn-danger" id="rejectFileBtn" onclick="rejectFileOffer()">Reject</button>
-                        </div>
+                        <p><strong>Incoming offers:</strong></p>
+                        <div id="pendingOffersList"></div>
                     </div>
                 </div>
                 
