@@ -99,17 +99,17 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 ## Key Statistics
 
 - **Total Issues**: 16
-- **AFK (Autonomous)**: 14
-- **HITL (Human-in-the-loop)**: 2 (testing-related)
+- **AFK (Autonomous)**: 13
+- **HITL (Human-in-the-loop)**: 3 (testing-related: ISSUE-013, ISSUE-014, ISSUE-016)
 - **Foundation**: 1 issue (ISSUE-001)
 - **Core Protocol**: 5 issues (002-005, 011)
-- **User Interface**: 5 issues (006-010, 009)
+- **User Interface**: 5 issues (006-009, 010)
 - **Testing**: 4 issues (012-016)
 - **Integration**: 1 issue (010)
 - **Completed**: 12 (ISSUE-001, ISSUE-002, ISSUE-003, ISSUE-004, ISSUE-005, ISSUE-006, ISSUE-007, ISSUE-008, ISSUE-009, ISSUE-010, ISSUE-011, ISSUE-012)
 - **Partial**: 1 (ISSUE-015)
 - **In Progress**: 0
-- **Pending**: 3
+- **Pending**: 3 (HITL issues: 013, 014, 016)
 
 ## Vertical Slice Principles
 
