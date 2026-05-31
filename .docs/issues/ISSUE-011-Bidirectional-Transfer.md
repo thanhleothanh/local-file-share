@@ -7,18 +7,18 @@ PRD-002: File Transfer Protocol
 Ensure file transfers work bidirectionally - both devices in a connection can send and receive files simultaneously. This includes both devices being able to offer files, accept offers from each other, and handle concurrent transfers.
 
 ## Acceptance criteria
-- [ ] Device A can send files to Device B while Device B is also sending files to Device A
-- [ ] Both directions use the same queue management (FIFO)
-- [ ] Files from both directions are tracked separately in the transfer list
-- [ ] Direction indicator clearly shows which device is sending and which is receiving
-- [ ] Control messages from both directions are handled correctly
-- [ ] Data channel handles chunks from both directions without conflict
-- [ ] Connection state shows TRANSFERRING when files are moving in either direction
-- [ ] Queue limits apply to total queued files from both directions
-- [ ] Both devices can offer files simultaneously
-- [ ] Both devices can accept/reject files independently
-- [ ] Progress tracking works for both directions
-- [ ] Download functionality works for files received from either direction
+- [x] Device A can send files to Device B while Device B is also sending files to Device A
+- [x] Both directions use the same queue management (FIFO)
+- [x] Files from both directions are tracked separately in the transfer list
+- [x] Direction indicator clearly shows which device is sending and which is receiving (← for receiving, → for sending)
+- [x] Control messages from both directions are handled correctly
+- [x] Data channel handles chunks from both directions without conflict (WebRTC data channels are bidirectional)
+- [x] Connection state shows TRANSFERRING when files are moving in either direction
+- [x] Queue limits apply to total queued files from both directions
+- [x] Both devices can offer files simultaneously
+- [x] Both devices can accept/reject files independently
+- [x] Progress tracking works for both directions
+- [x] Download functionality works for files received from either direction
 
 ## Blocked by
 - ISSUE-002 (File Offer and Accept Protocol)

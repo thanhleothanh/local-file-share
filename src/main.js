@@ -140,7 +140,7 @@ function updateFileQueueUI() {
     // Update pending offers display
     if (pending.length > 0) {
         const firstPending = pending[0];
-        offerFileName.textContent = firstPending.name;
+        offerFileName.textContent = '← ' + firstPending.name;
         offerFileSize.textContent = formatFileSize(firstPending.size);
         pendingOffers.style.display = 'block';
         pendingOfferFile = firstPending;
@@ -157,11 +157,14 @@ function updateFileQueueUI() {
         for (const file of files) {
             const progress = file.getProgress ? file.getProgress() : 0;
             const state = file.state || 'UNKNOWN';
+            const direction = file.direction === 'send' ? '→' : '←';
+            const directionText = file.direction === 'send' ? 'Sending' : 'Receiving';
             html += `
                 <div style="padding: 0.5rem; border-bottom: 1px solid var(--bg-secondary);">
                     <p style="margin: 0; font-size: 0.9rem;">
+                        <span style="color: var(--accent); margin-right: 0.5rem;">${direction}</span>
                         <strong>${file.name}</strong> (${formatFileSize(file.size)})
-                        <span style="color: var(--text-secondary); float: right;">${state}</span>
+                        <span style="color: var(--text-secondary); float: right;">${directionText} - ${state}</span>
                     </p>
                     ${progress > 0 && progress < 100 ? `
                         <progress value="${progress}" max="100" style="width: 100%; margin-top: 0.25rem;"></progress>
