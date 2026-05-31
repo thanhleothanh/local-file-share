@@ -16,14 +16,14 @@ Implement IndexedDB-based storage for file chunks, metadata, connection state, a
 - [x] File chunks are stored as they arrive (batch processing for memory efficiency)
 - [x] File chunks can be retrieved by connectionId, fileId, and index
 - [x] All chunks for a file can be retrieved and reassembled
-- [ ] Connection state persists across page reloads (storage module created but not integrated with connection manager)
-- [ ] File transfer state persists across page reloads (storage module created but not integrated with file manager)
-- [ ] Queued files persist across page reloads (storage module created but not integrated with queue manager)
+- [x] Connection state persists across page reloads (integrated with connection manager)
+- [x] File transfer state persists across page reloads (integrated with file manager)
+- [x] Queued files persist across page reloads (integrated with queue manager via file manager)
 - [x] Downloaded files are cleaned up from storage
 - [x] All connection data cleaned up on connection close
 - [x] Storage usage can be queried via navigator.storage.estimate()
 - [x] All IndexedDB operations use promises for async handling
-- [ ] Any IndexedDB error triggers fail-fast (close connection) (error handling not yet integrated)
+- [x] Any IndexedDB error triggers fail-fast (close connection) (integrated with error handler)
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake - provides connection context)

@@ -8,6 +8,14 @@
 import { v4 as uuidv4 } from 'uuid';
 import { compressToBase64, decompressFromBase64, generateSecret, validateQRData } from '../utils/qrCompression.js';
 import { errorHandler, ErrorType, ErrorSeverity } from '../utils/errorHandler.js';
+import { storageManager } from '../utils/storage.js';
+
+// Will be set by main.js to avoid circular dependency
+let fileTransferManager = null;
+
+export const setFileTransferManager = (manager) => {
+    fileTransferManager = manager;
+};
 
 // Connection state constants (ADR-0010)
 export const ConnectionState = {
@@ -48,6 +56,62 @@ export class WebRTCManager {
         this.idleTimeout = 5 * 60 * 1000; // 5 minutes
         this.eventListeners = {};
         this.pendingIceCandidates = [];
+        this.initialized = false;
+    }
+
+    /**
+     * Initialize the manager - load any persisted connection state
+     * @returns {Promise<void>}
+     */
+    async init() {
+        if (this.initialized) return;
+        
+        try {
+            await storageManager.ensureInit();
+            
+            // Try to load a persisted connection
+            const connections = await this.loadAllConnections();
+            if (connections.length > 0) {
+                const conn = connections[0];
+                this.connectionId = conn.connId;
+                this.secret = conn.secret;
+                console.log('Loaded persisted connection:', conn.connId, 'state:', conn.state);
+            }
+        } catch (error) {
+            console.error('Failed to initialize WebRTC manager:', error);
+            errorHandler.handleStorageError(error, { operation: 'webrtcManagerInit' });
+        }
+        
+        this.initialized = true;
+    }
+
+    /**
+     * Load all persisted connections
+     * @returns {Promise<Array>}
+     */
+    async loadAllConnections() {
+        try {
+            await storageManager.ensureInit();
+            const transaction = storageManager.db.transaction('connections', 'readonly');
+            const store = transaction.objectStore('connections');
+            
+            return new Promise((resolve, reject) => {
+                const connections = [];
+                const request = store.openCursor();
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor) {
+                        connections.push(cursor.value);
+                        cursor.continue();
+                    } else {
+                        resolve(connections);
+                    }
+                };
+                request.onerror = (event) => reject(event.target.error);
+            });
+        } catch (error) {
+            return [];
+        }
     }
 
     /**
@@ -117,8 +181,21 @@ export class WebRTCManager {
             connId: this.connectionId
         };
         
+        // Save connection to storage (ISSUE-005)
+        try {
+            await storageManager.saveConnection({
+                connId: this.connectionId,
+                secret: this.secret,
+                state: ConnectionState.NEW
+            });
+        } catch (error) {
+            console.error('Failed to save connection:', error);
+            errorHandler.handleStorageError(error, { operation: 'generateOfferQR' });
+            throw error;
+        }
+        
         // Transition to NEW state (ADR-0010)
-        this.transitionState(ConnectionState.NEW);
+        await this.transitionState(ConnectionState.NEW);
         
         return { qrData, connId: this.connectionId, secret: this.secret };
     }
@@ -181,8 +258,21 @@ export class WebRTCManager {
             connId: this.connectionId
         };
         
+        // Save connection to storage (ISSUE-005)
+        try {
+            await storageManager.saveConnection({
+                connId: this.connectionId,
+                secret: this.secret,
+                state: ConnectionState.CONNECTING
+            });
+        } catch (error) {
+            console.error('Failed to save connection:', error);
+            errorHandler.handleStorageError(error, { operation: 'processOfferQR' });
+            throw error;
+        }
+        
         // Transition to CONNECTING state
-        this.transitionState(ConnectionState.CONNECTING);
+        await this.transitionState(ConnectionState.CONNECTING);
         
         return { qrData: answerQRData, connId: this.connectionId, secret: this.secret };
     }
@@ -223,7 +313,7 @@ export class WebRTCManager {
         // Transition to CONNECTING state - wait for actual connection
         // The connection will transition to CONNECTED when data channels open
         // (handled in setupChannelHandlers)
-        this.transitionState(ConnectionState.CONNECTING);
+        await this.transitionState(ConnectionState.CONNECTING);
     }
 
     /**
@@ -488,7 +578,7 @@ export class WebRTCManager {
      * Transition to a new connection state
      * @param {string} newState - New state
      */
-    transitionState(newState) {
+    async transitionState(newState) {
         const validTransitions = {
             [ConnectionState.NEW]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
             [ConnectionState.CONNECTING]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
@@ -503,6 +593,17 @@ export class WebRTCManager {
             const oldState = this.state;
             this.state = newState;
             console.log(`State transition: ${oldState} -> ${newState}`);
+            
+            // Persist connection state (ISSUE-005)
+            try {
+                if (this.connectionId) {
+                    await storageManager.updateConnectionState(this.connectionId, newState);
+                }
+            } catch (error) {
+                console.error('Failed to persist connection state:', error);
+                errorHandler.handleStorageError(error, { operation: 'transitionState' });
+            }
+            
             this.emit('stateChange', newState, oldState);
         } else {
             console.warn(`Invalid state transition: ${this.state} -> ${newState}`);
@@ -546,9 +647,9 @@ export class WebRTCManager {
     /**
      * Close the connection
      */
-    close() {
+    async close() {
         this.clearIdleTimer();
-        this.transitionState(ConnectionState.CLOSED);
+        await this.transitionState(ConnectionState.CLOSED);
         
         if (this.controlChannel) {
             try {
@@ -575,6 +676,25 @@ export class WebRTCManager {
                 // Already closed
             }
             this.peerConnection = null;
+        }
+        
+        // Clean up connection data from storage (ISSUE-005)
+        try {
+            if (this.connectionId) {
+                await storageManager.deleteConnection(this.connectionId);
+            }
+        } catch (error) {
+            console.error('Failed to clean up connection storage:', error);
+            errorHandler.handleStorageError(error, { operation: 'closeConnection' });
+        }
+        
+        // Clear file transfer manager for this connection
+        try {
+            if (fileTransferManager) {
+                await fileTransferManager.clear();
+            }
+        } catch (error) {
+            console.error('Failed to clear file transfer manager:', error);
         }
         
         this.connectionId = null;

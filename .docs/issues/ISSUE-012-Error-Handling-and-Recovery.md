@@ -16,10 +16,10 @@ Implement comprehensive error handling, user feedback, and recovery mechanisms a
 - [x] Technical error details are logged to console for debugging
 - [x] Connection closes automatically on critical errors (fail-fast)
 - [x] User can see clear error state in UI (alert messages)
-- [ ] User can retry connection after failure (manual retry via UI)
+- [x] User can retry connection after failure (manual retry via UI)
 - [x] User can see specific error reasons (invalid QR, connection timeout, storage quota, etc.)
 - [x] Error states are visually distinct (red indicators for connection failed state)
-- [ ] Queue errors (full queue) are displayed to user (not implemented yet - queue not fully integrated)
+- [x] Queue errors (full queue) are displayed to user
 - [x] Transfer errors (chunk parsing, reassembly) trigger fail-fast
 - [x] All errors include context information for debugging
 

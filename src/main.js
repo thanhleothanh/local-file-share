@@ -3,7 +3,7 @@
  * Orchestrates the QR code connection handshake and WebRTC management
  */
 
-import { webrtcManager, ConnectionState } from './modules/webrtcManager.js';
+import { webrtcManager, ConnectionState, setFileTransferManager } from './modules/webrtcManager.js';
 import { qrHandler } from './modules/qrHandler.js';
 import { fileTransferManager, FileState } from './modules/fileTransfer.js';
 import { chunkHandler } from './utils/chunkHandler.js';
@@ -11,10 +11,12 @@ import { errorHandler } from './utils/errorHandler.js';
 import { storageManager } from './utils/storage.js';
 
 // DOM Elements
+const loadingIndicator = document.getElementById('loadingIndicator');
 const createConnectionBtn = document.getElementById('createConnectionBtn');
 const scanOfferBtn = document.getElementById('scanOfferBtn');
 const scanAnswerBtn = document.getElementById('scanAnswerBtn');
 const closeConnectionBtn = document.getElementById('closeConnectionBtn');
+const retryConnectionBtn = document.getElementById('retryConnectionBtn');
 const offerQRContainer = document.getElementById('offerQRContainer');
 const offerQRCanvas = document.getElementById('offerQRCanvas');
 const answerQRContainer = document.getElementById('answerQRContainer');
@@ -62,6 +64,20 @@ function formatFileSize(bytes) {
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+/**
+ * Show loading indicator
+ */
+function showLoading() {
+    loadingIndicator.style.display = 'flex';
+}
+
+/**
+ * Hide loading indicator
+ */
+function hideLoading() {
+    loadingIndicator.style.display = 'none';
 }
 
 /**
@@ -116,10 +132,12 @@ function updateUI() {
     noConnectionFilesMsg.style.display = isConnected ? 'none' : 'block';
     
     // Update button states
+    const isFailed = state === ConnectionState.FAILED;
     createConnectionBtn.disabled = isConnecting || isConnected;
     scanOfferBtn.disabled = isConnecting || isConnected || qrHandler.isScanning();
     scanAnswerBtn.disabled = !offerQRData || isConnected || qrHandler.isScanning();
-    closeConnectionBtn.disabled = !isConnected;
+    closeConnectionBtn.disabled = !isConnected && !isFailed;
+    retryConnectionBtn.disabled = !isFailed;
     selectFilesBtn.disabled = !isConnected;
     
     // Show/hide QR containers
@@ -336,8 +354,8 @@ async function handleQRScanResult(qrData, mode) {
 /**
  * Close the current connection
  */
-function closeConnection() {
-    webrtcManager.close();
+async function closeConnection() {
+    await webrtcManager.close();
     offerQRData = null;
     currentScanMode = null;
     scannerView.style.display = 'none';
@@ -345,6 +363,23 @@ function closeConnection() {
     answerQRContainer.style.display = 'none';
     updateUI();
     showAlert('Connection closed', 'success');
+}
+
+/**
+ * Retry connection after failure
+ */
+async function retryConnection() {
+    // Clear the failed state
+    await webrtcManager.close();
+    offerQRData = null;
+    currentScanMode = null;
+    scannerView.style.display = 'none';
+    qrHandler.stopScanning();
+    answerQRContainer.style.display = 'none';
+    
+    // Enable create connection button
+    updateUI();
+    showAlert('Ready to retry. Click "Create Connection" to start again.', 'success');
 }
 
 // Setup WebRTC event listeners
@@ -384,21 +419,26 @@ webrtcManager.on('idleTimeout', () => {
 /**
  * Handle file selection
  */
-function handleFileSelection(event) {
+async function handleFileSelection(event) {
     const files = Array.from(event.target.files);
     if (files.length === 0) return;
     
     // Select files for transfer
-    const fileTransfers = fileTransferManager.selectFiles(files);
-    
-    if (fileTransfers.length > 0) {
-        showFilesAlert(`${fileTransfers.length} file(s) selected for transfer`, 'success');
+    try {
+        const fileTransfers = await fileTransferManager.selectFiles(files);
         
-        // Start sending first file
-        const firstFile = fileTransfers[0];
-        startSendingFile(firstFile);
-    } else {
-        showFilesAlert('No valid files selected (check file size)', 'error');
+        if (fileTransfers.length > 0) {
+            showFilesAlert(`${fileTransfers.length} file(s) selected for transfer`, 'success');
+            
+            // Start sending first file
+            const firstFile = fileTransfers[0];
+            await startSendingFile(firstFile);
+        } else {
+            showFilesAlert('No valid files selected (check file size)', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to select files:', error);
+        showFilesAlert('Failed to select files: ' + error.message, 'error');
     }
     
     // Reset file input
@@ -436,10 +476,14 @@ async function startSendingFile(fileTransfer) {
 /**
  * Accept a file offer
  */
-function acceptFileOffer() {
+async function acceptFileOffer() {
     if (pendingOfferFile) {
-        fileTransferManager.sendFileAccept(pendingOfferFile.fileId);
-        showFilesAlert(`Accepted: ${pendingOfferFile.name}`, 'success');
+        try {
+            await fileTransferManager.sendFileAccept(pendingOfferFile.fileId);
+            showFilesAlert(`Accepted: ${pendingOfferFile.name}`, 'success');
+        } catch (error) {
+            showFilesAlert(`Failed to accept: ${error.message}`, 'error');
+        }
         pendingOfferFile = null;
         pendingOffers.style.display = 'none';
         updateUI();
@@ -449,10 +493,14 @@ function acceptFileOffer() {
 /**
  * Reject a file offer
  */
-function rejectFileOffer() {
+async function rejectFileOffer() {
     if (pendingOfferFile) {
-        fileTransferManager.sendFileReject(pendingOfferFile.fileId, 'USER_REJECTED');
-        showFilesAlert(`Rejected: ${pendingOfferFile.name}`, 'success');
+        try {
+            await fileTransferManager.sendFileReject(pendingOfferFile.fileId, 'USER_REJECTED');
+            showFilesAlert(`Rejected: ${pendingOfferFile.name}`, 'success');
+        } catch (error) {
+            showFilesAlert(`Failed to reject: ${error.message}`, 'error');
+        }
         pendingOfferFile = null;
         pendingOffers.style.display = 'none';
         updateUI();
@@ -476,19 +524,60 @@ function showFilesAlert(message, type = 'error') {
 }
 
 // Initialize UI
-function init() {
-    updateUI();
+async function init() {
+    showLoading();
     
-    // Setup error handler
-    errorHandler.on('showError', ({ message, type }) => {
-        showAlert(message, type);
-    });
-    
-    // Connect storage manager to error handler
-    storageManager.setErrorHandler(errorHandler);
-    
-    // Setup file input handler
-    fileInput.addEventListener('change', handleFileSelection);
+    // Initialize all modules
+    try {
+        // Initialize storage (may fail in some browsers)
+        try {
+            await storageManager.init();
+            console.log('Storage initialized');
+        } catch (error) {
+            console.warn('Storage initialization failed:', error);
+        }
+        
+        // Connect storage manager to error handler
+        storageManager.setErrorHandler(errorHandler);
+        
+        // Set file transfer manager reference in webrtcManager (to avoid circular dependency)
+        setFileTransferManager(fileTransferManager);
+        
+        // Initialize WebRTC manager (loads persisted connections)
+        try {
+            await webrtcManager.init();
+            console.log('WebRTC manager initialized');
+        } catch (error) {
+            console.warn('WebRTC manager initialization failed:', error);
+        }
+        
+        // Setup error handler
+        errorHandler.on('showError', ({ message, type }) => {
+            showAlert(message, type);
+        });
+        
+        // Setup file input handler
+        fileInput.addEventListener('change', handleFileSelection);
+        
+        // Setup module event listeners
+        setupModuleListeners();
+        
+        // Hide loading indicator
+        hideLoading();
+        
+        // Update UI
+        updateUI();
+    } catch (error) {
+        hideLoading();
+        showAlert('Failed to initialize application: ' + error.message, 'error');
+        console.error('Initialization error:', error);
+    }
+}
+
+/**
+ * Setup event listeners between modules
+ */
+function setupModuleListeners() {
     
     // Setup file transfer event listeners
     fileTransferManager.on('fileOfferSent', (file) => {

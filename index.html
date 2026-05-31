@@ -131,6 +131,39 @@
             border-radius: 4px;
         }
         
+        /* Loading indicator */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .loading-content {
+            text-align: center;
+            color: var(--accent);
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0, 212, 255, 0.3);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
         .status-text {
             font-size: 0.9rem;
             color: var(--text-secondary);
@@ -286,6 +319,14 @@
     </style>
 </head>
 <body>
+    <!-- Loading Indicator -->
+    <div id="loadingIndicator" class="loading-overlay" style="display: none;">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p>Initializing...</p>
+        </div>
+    </div>
+    
     <div class="container">
         <header>
             <h1>Local File Share</h1>
@@ -342,6 +383,9 @@
                         </button>
                         <button class="btn btn-danger" id="closeConnectionBtn" onclick="closeConnection()" disabled>
                             Close Connection
+                        </button>
+                        <button class="btn btn-secondary" id="retryConnectionBtn" onclick="retryConnection()" disabled>
+                            Retry Connection
                         </button>
                     </div>
                 </div>

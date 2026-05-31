@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { webrtcManager, ConnectionState, MessageType } from './webrtcManager.js';
 import { FileTransfer, FileState, FileQueueManager } from '../utils/fileState.js';
 import { errorHandler } from '../utils/errorHandler.js';
+import { storageManager } from '../utils/storage.js';
 
 export { FileState };
 
@@ -32,16 +33,35 @@ export class FileTransferManager {
      */
     setupMessageHandlers() {
         // Register with WebRTC manager
-        webrtcManager.on('controlMessage', (message) => {
-            this.handleControlMessage(message);
+        webrtcManager.on('controlMessage', async (message) => {
+            try {
+                await this.handleControlMessage(message);
+            } catch (error) {
+                console.error('Error handling control message:', error);
+                errorHandler.handleError(error);
+            }
         });
+    }
+
+    /**
+     * Persist file state to storage
+     * @param {FileTransfer} file - File to persist
+     * @returns {Promise<void>}
+     */
+    async persistFileState(file) {
+        try {
+            await storageManager.updateFileState(file.connId, file.fileId, file.state);
+        } catch (error) {
+            console.error('Failed to persist file state:', error);
+            errorHandler.handleStorageError(error, { operation: 'persistFileState', fileId: file.fileId });
+        }
     }
 
     /**
      * Handle incoming control messages
      * @param {Object} message - Parsed JSON message
      */
-    handleControlMessage(message) {
+    async handleControlMessage(message) {
         if (!message || typeof message !== 'object' || !message.type) {
             console.warn('Invalid control message format');
             return;
@@ -80,7 +100,7 @@ export class FileTransferManager {
      * Handle FILE_OFFER message
      * @param {Object} message - FILE_OFFER message
      */
-    handleFileOffer(message) {
+    async handleFileOffer(message) {
         // Validate message structure
         const requiredFields = ['connId', 'fileId', 'name', 'size', 'mime'];
         for (const field of requiredFields) {
@@ -140,6 +160,23 @@ export class FileTransferManager {
         this.pendingOffers.set(file.fileId, file);
         this.files.set(file.fileId, file);
 
+        // Persist received file to storage (ISSUE-005)
+        try {
+            await storageManager.saveFile({
+                connId: file.connId,
+                fileId: file.fileId,
+                name: file.name,
+                size: file.size,
+                mime: file.mime,
+                state: file.state,
+                direction: file.direction,
+                createdAt: file.createdAt
+            });
+        } catch (error) {
+            console.error('Failed to save received file to storage:', error);
+            errorHandler.handleStorageError(error, { operation: 'handleFileOffer', fileId: file.fileId });
+        }
+
         // Notify UI
         this.emit('fileOfferReceived', file);
     }
@@ -148,7 +185,7 @@ export class FileTransferManager {
      * Handle FILE_ACCEPT message
      * @param {Object} message - FILE_ACCEPT message
      */
-    handleFileAccept(message) {
+    async handleFileAccept(message) {
         const requiredFields = ['connId', 'fileId'];
         for (const field of requiredFields) {
             if (!(field in message)) {
@@ -174,6 +211,9 @@ export class FileTransferManager {
                 this.queueManager.currentFile = file;
             }
             this.queueManager.addFile(file);
+            
+            // Persist state (ISSUE-005)
+            await this.persistFileState(file);
         }
 
         // Notify UI
@@ -184,10 +224,19 @@ export class FileTransferManager {
      * Handle FILE_REJECT message
      * @param {Object} message - FILE_REJECT message
      */
-    handleFileReject(message) {
+    async handleFileReject(message) {
         const file = this.files.get(message.fileId);
         if (file) {
             file.transitionState(FileState.REJECTED);
+            await this.persistFileState(file);
+            
+            // Clean up from storage
+            try {
+                await storageManager.deleteFile(file.connId, file.fileId);
+            } catch (error) {
+                console.error('Failed to delete rejected file from storage:', error);
+            }
+            
             this.files.delete(message.fileId);
             this.emit('fileRejected', file);
         }
@@ -197,10 +246,11 @@ export class FileTransferManager {
      * Handle TRANSFER_DONE message
      * @param {Object} message - TRANSFER_DONE message
      */
-    handleTransferDone(message) {
+    async handleTransferDone(message) {
         const file = this.files.get(message.fileId);
         if (file) {
             file.transitionState(FileState.COMPLETED);
+            await this.persistFileState(file);
             this.queueManager.completeCurrentFile(file);
             
             // Start next file if queue is not empty
@@ -217,10 +267,19 @@ export class FileTransferManager {
      * Handle CANCELLED message
      * @param {Object} message - CANCELLED message
      */
-    handleFileCancelled(message) {
+    async handleFileCancelled(message) {
         const file = this.files.get(message.fileId);
         if (file) {
             file.transitionState(FileState.CANCELLED);
+            await this.persistFileState(file);
+            
+            // Clean up from storage
+            try {
+                await storageManager.deleteFile(file.connId, file.fileId);
+            } catch (error) {
+                console.error('Failed to delete cancelled file from storage:', error);
+            }
+            
             this.queueManager.cancelFile(message.fileId);
             this.files.delete(message.fileId);
             this.emit('fileCancelled', file);
@@ -248,9 +307,9 @@ export class FileTransferManager {
     /**
      * Select files to send
      * @param {FileList|Array} fileList - Files to send
-     * @returns {Array<FileTransfer>} Created file transfers
+     * @returns {Promise<Array<FileTransfer>>} Created file transfers
      */
-    selectFiles(fileList) {
+    async selectFiles(fileList) {
         const files = [];
         const currentConn = webrtcManager.getConnectionInfo();
         
@@ -267,6 +326,21 @@ export class FileTransferManager {
                 continue;
             }
 
+            // Check queue limits (ADR-0009, ISSUE-012)
+            const canAdd = this.queueManager.checkCanAddFile(fileItem.size);
+            if (!canAdd.canAdd) {
+                console.error('Queue limit exceeded:', canAdd.reason);
+                const errorReason = canAdd.reason === 'QUEUE_FILE_LIMIT' 
+                    ? 'Queue has reached maximum number of files (50)'
+                    : 'Queue has reached maximum size (500MB)';
+                this.emit('fileError', { file: fileItem, error: errorReason });
+                errorHandler.handleFileError(
+                    new Error(errorReason),
+                    { fileId: 'N/A', fileName: fileItem.name, fileSize: fileItem.size, reason: canAdd.reason }
+                );
+                continue;
+            }
+
             const fileId = uuidv4();
             const file = new FileTransfer({
                 connId: currentConn.connId,
@@ -279,6 +353,23 @@ export class FileTransferManager {
 
             // Store file
             this.files.set(fileId, file);
+            
+            // Persist file to storage (ISSUE-005)
+            try {
+                await storageManager.saveFile({
+                    connId: file.connId,
+                    fileId: file.fileId,
+                    name: file.name,
+                    size: file.size,
+                    mime: file.mime,
+                    state: file.state,
+                    direction: file.direction,
+                    createdAt: file.createdAt
+                });
+            } catch (error) {
+                console.error('Failed to save file to storage:', error);
+                errorHandler.handleStorageError(error, { operation: 'selectFiles', fileId: file.fileId });
+            }
             
             // Send FILE_OFFER message (ADR-0013)
             this.sendFileOffer(file);
@@ -311,7 +402,7 @@ export class FileTransferManager {
      * Send FILE_ACCEPT message
      * @param {string} fileId - File ID to accept
      */
-    sendFileAccept(fileId) {
+    async sendFileAccept(fileId) {
         const file = this.pendingOffers.get(fileId);
         if (!file) {
             console.error('Cannot accept unknown file:', fileId);
@@ -331,6 +422,9 @@ export class FileTransferManager {
         this.queueManager.currentFile = file;
         this.pendingOffers.delete(fileId);
         
+        // Persist state (ISSUE-005)
+        await this.persistFileState(file);
+        
         this.emit('fileAccepted', file);
     }
 
@@ -339,7 +433,7 @@ export class FileTransferManager {
      * @param {string} fileId - File ID to reject
      * @param {string} reason - Reason for rejection
      */
-    sendFileReject(fileId, reason = 'USER_REJECTED') {
+    async sendFileReject(fileId, reason = 'USER_REJECTED') {
         const file = this.pendingOffers.get(fileId);
         if (!file) {
             console.error('Cannot reject unknown file:', fileId);
@@ -357,6 +451,15 @@ export class FileTransferManager {
         
         // Update state
         file.transitionState(FileState.REJECTED);
+        await this.persistFileState(file);
+        
+        // Clean up from storage on reject
+        try {
+            await storageManager.deleteFile(file.connId, file.fileId);
+        } catch (error) {
+            console.error('Failed to delete rejected file from storage:', error);
+        }
+        
         this.pendingOffers.delete(fileId);
         this.files.delete(fileId);
         
@@ -367,7 +470,7 @@ export class FileTransferManager {
      * Send CANCELLED message
      * @param {string} fileId - File ID to cancel
      */
-    sendFileCancelled(fileId) {
+    async sendFileCancelled(fileId) {
         const file = this.files.get(fileId);
         if (!file) {
             console.error('Cannot cancel unknown file:', fileId);
@@ -383,6 +486,16 @@ export class FileTransferManager {
         webrtcManager.sendControlMessage(message);
         
         // Update state
+        file.transitionState(FileState.CANCELLED);
+        await this.persistFileState(file);
+        
+        // Clean up from storage
+        try {
+            await storageManager.deleteFile(file.connId, file.fileId);
+        } catch (error) {
+            console.error('Failed to delete cancelled file from storage:', error);
+        }
+        
         this.queueManager.cancelFile(fileId);
         this.files.delete(fileId);
         
@@ -393,7 +506,7 @@ export class FileTransferManager {
      * Send TRANSFER_DONE message
      * @param {string} fileId - File ID that completed
      */
-    sendTransferDone(fileId) {
+    async sendTransferDone(fileId) {
         const file = this.files.get(fileId);
         if (!file) {
             console.error('Cannot complete unknown file:', fileId);
@@ -410,6 +523,7 @@ export class FileTransferManager {
         
         // Update state
         file.transitionState(FileState.COMPLETED);
+        await this.persistFileState(file);
         this.queueManager.completeCurrentFile(file);
         
         this.emit('fileTransferComplete', file);
@@ -453,7 +567,22 @@ export class FileTransferManager {
      * Clear all files (on connection close)
      * ADR-0018: Queued files are discarded when connection closes
      */
-    clear() {
+    async clear() {
+        const currentConn = webrtcManager.getConnectionInfo();
+        const connId = currentConn.connId;
+        
+        // Delete all files for this connection from storage
+        if (connId) {
+            try {
+                const files = this.getAllFiles();
+                for (const file of files) {
+                    await storageManager.deleteFile(connId, file.fileId);
+                }
+            } catch (error) {
+                console.error('Failed to clean up file storage:', error);
+            }
+        }
+        
         this.files.clear();
         this.pendingOffers.clear();
         this.queueManager.clear();
