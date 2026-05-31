@@ -169,8 +169,12 @@ function updateFileQueueUI() {
             const state = file.state || 'UNKNOWN';
             const direction = file.direction === 'send' ? '→' : '←';
             const directionText = file.direction === 'send' ? 'Sending' : 'Receiving';
+            
+            // Show download button for completed received files
+            const isCompletedReceive = file.state === 'COMPLETED' && file.direction === 'receive';
+            
             html += `
-                <div style="padding: 0.5rem; border-bottom: 1px solid var(--bg-secondary);">
+                <div style="padding: 0.5rem; border-bottom: 1px solid var(--bg-secondary);" data-file-id="${file.fileId}">
                     <p style="margin: 0; font-size: 0.9rem;">
                         <span style="color: var(--accent); margin-right: 0.5rem;">${direction}</span>
                         <strong>${file.name}</strong> (${formatFileSize(file.size)})
@@ -179,6 +183,13 @@ function updateFileQueueUI() {
                     ${progress > 0 && progress < 100 ? `
                         <progress value="${progress}" max="100" style="width: 100%; margin-top: 0.25rem;"></progress>
                         <span style="font-size: 0.8rem; color: var(--text-secondary);">${progress}%</span>
+                    ` : ''}
+                    ${isCompletedReceive ? `
+                        <div style="margin-top: 0.5rem;">
+                            <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;" onclick="downloadFile('${file.fileId}')">
+                                Download
+                            </button>
+                        </div>
                     ` : ''}
                 </div>
             `;
@@ -547,6 +558,32 @@ function createDownloadLink(file, data) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+/**
+ * Download a completed file
+ * @param {string} fileId - File ID to download
+ */
+function downloadFile(fileId) {
+    // For now, we need to have the file data cached
+    // In a full implementation, we would retrieve from IndexedDB
+    const file = fileTransferManager.getFile(fileId);
+    if (!file) {
+        showFilesAlert('File not found', 'error');
+        return;
+    }
+    
+    // Check if we have the data cached in the chunk handler
+    chunkHandler.getFileData(fileId).then((data) => {
+        if (data) {
+            createDownloadLink(file, data);
+            showFilesAlert(`Downloaded: ${file.name}`, 'success');
+        } else {
+            showFilesAlert('File data not available. File may have been cleaned up.', 'error');
+        }
+    }).catch((error) => {
+        showFilesAlert('Failed to download: ' + error.message, 'error');
+    });
 }
 
 // Start the application

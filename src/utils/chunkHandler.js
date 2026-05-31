@@ -331,6 +331,39 @@ export class ChunkHandler {
     cleanupAll() {
         this.receivedChunks.clear();
     }
+
+    /**
+     * Get file data from received chunks (if still in memory)
+     * @param {string} fileId - File ID
+     * @returns {Promise<ArrayBuffer|null>}
+     */
+    async getFileData(fileId) {
+        const fileChunks = this.receivedChunks.get(fileId);
+        if (!fileChunks || fileChunks.size === 0) {
+            return null;
+        }
+
+        // Sort chunks by index
+        const sortedChunks = Array.from(fileChunks.entries())
+            .sort((a, b) => a[0] - b[0]);
+
+        // Calculate total size
+        let totalSize = 0;
+        for (const [index, chunk] of sortedChunks) {
+            totalSize += chunk.byteLength;
+        }
+
+        // Create complete file buffer
+        const completeBuffer = new Uint8Array(totalSize);
+        let offset = 0;
+
+        for (const [index, chunk] of sortedChunks) {
+            completeBuffer.set(new Uint8Array(chunk), offset);
+            offset += chunk.byteLength;
+        }
+
+        return completeBuffer.buffer;
+    }
 }
 
 // Singleton instance

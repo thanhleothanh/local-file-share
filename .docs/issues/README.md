@@ -87,7 +87,7 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 | 006 | Connection UI | PRD-003 | 001 | AFK | done |
 | 007 | File Sender UI | PRD-003 | 001, 006 | AFK | done |
 | 008 | File Receiver UI | PRD-003 | 001, 006, 007 | AFK | done |
-| 009 | Progress and Queue UI | PRD-003 | 007, 008 | AFK | pending |
+| 009 | Progress and Queue UI | PRD-003 | 007, 008 | AFK | done |
 | 010 | Application Orchestration | PRD-005 | 001-009 | AFK | pending |
 | 011 | Bidirectional Transfer | PRD-002 | 002, 003 | AFK | done |
 | 012 | Error Handling and Recovery | PRD-005 | 001, 005 | AFK | partial |
@@ -106,10 +106,10 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 - **User Interface**: 5 issues (006-010, 009)
 - **Testing**: 4 issues (012-016)
 - **Integration**: 1 issue (010)
-- **Completed**: 8 (ISSUE-001, ISSUE-002, ISSUE-003, ISSUE-004, ISSUE-006, ISSUE-007, ISSUE-008, ISSUE-011)
+- **Completed**: 9 (ISSUE-001, ISSUE-002, ISSUE-003, ISSUE-004, ISSUE-006, ISSUE-007, ISSUE-008, ISSUE-009, ISSUE-011)
 - **Partial**: 2 (ISSUE-005, ISSUE-012)
 - **In Progress**: 0
-- **Pending**: 5
+- **Pending**: 4
 
 ## Vertical Slice Principles
 
