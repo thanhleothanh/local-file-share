@@ -113,6 +113,19 @@ export class FileTransferManager {
             return;
         }
 
+        // Check queue limits (ADR-0009)
+        const canAdd = this.queueManager.checkCanAddFile(message.size);
+        if (!canAdd.canAdd) {
+            console.error('Queue limit exceeded:', canAdd.reason);
+            errorHandler.handleFileError(
+                new Error(`Queue limit exceeded: ${canAdd.reason}`),
+                { fileId: message.fileId, fileName: message.name, fileSize: message.size }
+            );
+            // Send reject with reason
+            this.sendFileReject(message.fileId, canAdd.reason);
+            return;
+        }
+
         // Create file transfer object
         const file = new FileTransfer({
             connId: message.connId,
@@ -438,11 +451,29 @@ export class FileTransferManager {
 
     /**
      * Clear all files (on connection close)
+     * ADR-0018: Queued files are discarded when connection closes
      */
     clear() {
         this.files.clear();
         this.pendingOffers.clear();
         this.queueManager.clear();
+    }
+
+    /**
+     * Get queue info
+     * @returns {Object}
+     */
+    getQueueInfo() {
+        return this.queueManager.getQueueInfo();
+    }
+
+    /**
+     * Check if queue can accept a file
+     * @param {number} fileSize - Size of file
+     * @returns {{canAdd: boolean, reason?: string}}
+     */
+    checkQueueForFile(fileSize) {
+        return this.queueManager.checkCanAddFile(fileSize);
     }
 
     /**

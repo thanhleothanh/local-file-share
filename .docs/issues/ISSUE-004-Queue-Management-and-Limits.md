@@ -7,19 +7,19 @@ PRD-002: File Transfer Protocol
 Implement the FIFO queue with 500MB size limit, queue state management, and automatic processing.
 
 ## Acceptance criteria
-- [ ] Queue is FIFO (First-In-First-Out) ordered
-- [ ] Accepted files are added to queue if another file is TRANSFERRING
-- [ ] Accepted files skip queue and start immediately if no file is TRANSFERRING
-- [ ] Queue maintains order across multiple files
-- [ ] Queue size limit: 500MB total for all queued files (ADR-0009)
-- [ ] New file offers are rejected if adding to queue would exceed 500MB
-- [ ] User sees queue status: number of files waiting and total queue size in MB
-- [ ] Queued files are listed separately in UI
-- [ ] On transfer completion, next queued file starts automatically
-- [ ] Queue state is persisted across page reloads
-- [ ] Queued files are discarded when connection closes (ADR-0018)
-- [ ] Queue cleanup removes all queued file data
-- [ ] Queue ordering is preserved after page reload
+- [x] Queue is FIFO (First-In-First-Out) ordered
+- [x] Accepted files are added to queue if another file is TRANSFERRING
+- [x] Accepted files skip queue and start immediately if no file is TRANSFERRING
+- [x] Queue maintains order across multiple files
+- [x] Queue size limit: 500MB total for all queued files (ADR-0009)
+- [x] New file offers are rejected if adding to queue would exceed 500MB
+- [ ] User sees queue status: number of files waiting and total queue size in MB (UI not fully implemented)
+- [x] Queued files are listed separately in UI (in file queue display)
+- [x] On transfer completion, next queued file starts automatically
+- [ ] Queue state is persisted across page reloads (not integrated with IndexedDB yet)
+- [x] Queued files are discarded when connection closes (ADR-0018)
+- [x] Queue cleanup removes all queued file data
+- [ ] Queue ordering is preserved after page reload (not integrated with persistence yet)
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake)

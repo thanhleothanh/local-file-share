@@ -116,7 +116,25 @@ export class FileQueueManager {
     constructor() {
         this.queue = [];
         this.currentFile = null;
-        this.maxQueueSize = 50; // Max files in queue (ADR-0005: 500MB total limit)
+        this.maxQueueSize = 50; // Max files in queue
+        this.maxQueueBytes = 500 * 1024 * 1024; // 500MB total queue size limit (ADR-0009)
+    }
+
+    /**
+     * Get current queue size in bytes
+     * @returns {number}
+     */
+    getQueueSizeBytes() {
+        return this.queue.reduce((total, file) => total + (file.size || 0), 0);
+    }
+
+    /**
+     * Check if queue has space for a new file
+     * @param {number} fileSize - Size of file to add
+     * @returns {boolean}
+     */
+    hasSpaceForFile(fileSize) {
+        return this.getQueueSizeBytes() + fileSize <= this.maxQueueBytes;
     }
 
     /**
@@ -126,10 +144,32 @@ export class FileQueueManager {
      */
     addFile(file) {
         if (this.queue.length >= this.maxQueueSize) {
-            return false; // Queue full
+            return false; // Queue full (file count limit)
         }
+        
+        if (!this.hasSpaceForFile(file.size)) {
+            return false; // Queue full (size limit) - ADR-0009
+        }
+        
         this.queue.push(file);
         return true;
+    }
+
+    /**
+     * Check if adding a file would exceed queue limits
+     * @param {number} fileSize - Size of file to add
+     * @returns {{canAdd: boolean, reason?: string}}
+     */
+    checkCanAddFile(fileSize) {
+        if (this.queue.length >= this.maxQueueSize) {
+            return { canAdd: false, reason: 'QUEUE_FILE_LIMIT' };
+        }
+        
+        if (!this.hasSpaceForFile(fileSize)) {
+            return { canAdd: false, reason: 'QUEUE_SIZE_LIMIT' };
+        }
+        
+        return { canAdd: true };
     }
 
     /**
@@ -290,11 +330,41 @@ export class FileQueueManager {
     }
 
     /**
-     * Get queue size
+     * Get queue size (number of files)
      * @returns {number}
      */
     getQueueSize() {
         return this.queue.length;
+    }
+
+    /**
+     * Get queue size in bytes
+     * @returns {number}
+     */
+    getQueueSizeInBytes() {
+        return this.getQueueSizeBytes();
+    }
+
+    /**
+     * Get remaining queue capacity in bytes
+     * @returns {number}
+     */
+    getRemainingCapacity() {
+        return this.maxQueueBytes - this.getQueueSizeBytes();
+    }
+
+    /**
+     * Get queue info
+     * @returns {Object}
+     */
+    getQueueInfo() {
+        return {
+            fileCount: this.getQueueSize(),
+            totalBytes: this.getQueueSizeBytes(),
+            maxBytes: this.maxQueueBytes,
+            remainingBytes: this.getRemainingCapacity(),
+            hasCurrentFile: this.hasCurrentFile()
+        };
     }
 
     /**

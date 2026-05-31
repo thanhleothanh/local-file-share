@@ -82,7 +82,7 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 | 001 | QR Code Connection Handshake | PRD-001 | None | AFK | done |
 | 002 | File Offer and Accept Protocol | PRD-002 | 001 | AFK | done |
 | 003 | File Chunking and Transfer | PRD-002 | 001, 002 | AFK | partial |
-| 004 | Queue Management and Limits | PRD-002 | 001, 002, 003 | AFK | pending |
+| 004 | Queue Management and Limits | PRD-002 | 001, 002, 003 | AFK | partial |
 | 005 | IndexedDB Storage and Persistence | PRD-004 | 001 | AFK | partial |
 | 006 | Connection UI | PRD-003 | 001 | AFK | done |
 | 007 | File Sender UI | PRD-003 | 001, 006 | AFK | done |
@@ -107,9 +107,9 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 - **Testing**: 4 issues (012-016)
 - **Integration**: 1 issue (010)
 - **Completed**: 5 (ISSUE-001, ISSUE-002, ISSUE-006, ISSUE-007, ISSUE-008)
-- **Partial**: 3 (ISSUE-003, ISSUE-005, ISSUE-012)
+- **Partial**: 4 (ISSUE-003, ISSUE-004, ISSUE-005, ISSUE-012)
 - **In Progress**: 0
-- **Pending**: 8
+- **Pending**: 7
 
 ## Vertical Slice Principles
 
