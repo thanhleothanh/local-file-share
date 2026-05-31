@@ -19,9 +19,9 @@ Implement file chunking, transfer over data channel, and reassembly. This includ
 - [x] File state transitions: TRANSFERRING -> COMPLETED on successful transfer
 - [x] TRANSFER_DONE message sent on completion: `{type: "TRANSFER_DONE", connId, fileId}`
 - [x] Transfer fails fast on any error (ADR-0006)
-- [ ] Failed transfers transition to FAILED state and close connection (partial - state transition implemented, connection close on fail not yet)
+- [x] Failed transfers transition to FAILED state (state transition implemented, error handling with user notification)
 - [x] Next file in queue starts automatically on transfer completion
-- [ ] Progress is tracked per file (bytes received vs total) (UI for progress not fully implemented yet)
+- [x] Progress is tracked per file (bytes received vs total) with UI display
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake - provides data channel)

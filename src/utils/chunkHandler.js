@@ -81,7 +81,7 @@ export class ChunkHandler {
 
             console.log(`Received chunk: fileId=${fileId.substring(0, 8)}... index=${index} isLast=${isLast} size=${chunkData.byteLength}`);
 
-            // Store chunk
+            // Store chunk and update progress
             this.storeChunk(fileId, index, chunkData, isLast);
         } catch (error) {
             errorHandler.handleFileError(
@@ -106,6 +106,14 @@ export class ChunkHandler {
         const fileChunks = this.receivedChunks.get(fileId);
         fileChunks.set(index, data);
 
+        // Update file progress
+        const file = fileTransferManager.getFile(fileId);
+        if (file) {
+            file.updateProgress(data.byteLength);
+            file.updateChunks(1);
+            fileTransferManager.emit('fileProgress', file);
+        }
+
         // Check if this is the last chunk
         if (isLast) {
             // All chunks should be here, assemble the file
@@ -117,10 +125,16 @@ export class ChunkHandler {
      * Assemble a complete file from received chunks
      * @param {string} fileId - File ID
      */
-    assembleFile(fileId) {
+    async assembleFile(fileId) {
         const fileChunks = this.receivedChunks.get(fileId);
         if (!fileChunks || fileChunks.size === 0) {
             console.error('No chunks for file:', fileId);
+            // Mark file as failed
+            const file = fileTransferManager.getFile(fileId);
+            if (file) {
+                file.transitionState(FileState.FAILED);
+                fileTransferManager.emit('fileTransferFailed', file);
+            }
             return;
         }
 
@@ -134,6 +148,23 @@ export class ChunkHandler {
         // Sort chunks by index
         const sortedChunks = Array.from(fileChunks.entries())
             .sort((a, b) => a[0] - b[0]);
+
+        // Check if we have all chunks
+        const expectedChunks = sortedChunks.length;
+        const firstIndex = sortedChunks[0][0];
+        const lastIndex = sortedChunks[expectedChunks - 1][0];
+        
+        if (lastIndex !== expectedChunks - 1 + firstIndex) {
+            console.error('Missing chunks for file:', fileId, 'Expected:', expectedChunks, 'indices:', firstIndex, '-', lastIndex);
+            errorHandler.handleFileError(
+                new Error(`Missing chunks for file: expected ${expectedChunks} chunks but received incomplete sequence`),
+                { fileId, receivedChunks: sortedChunks.length, firstIndex, lastIndex }
+            );
+            file.transitionState(FileState.FAILED);
+            fileTransferManager.emit('fileTransferFailed', file);
+            this.receivedChunks.delete(fileId);
+            return;
+        }
 
         // Calculate total size
         let totalSize = 0;

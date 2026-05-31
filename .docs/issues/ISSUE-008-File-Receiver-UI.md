@@ -14,8 +14,8 @@ Implement the user interface for receiving files, including offer notifications,
 - [ ] Multiple file offers can be displayed simultaneously (currently only shows one at a time)
 - [x] Received files listed with progress (status shown)
 - [x] Direction indicator shows implicitly (receive)
-- [ ] Progress bar shown for TRANSFERRING files (UI elements exist but not fully connected)
-- [ ] Percentage complete shown for each transfer (not implemented yet)
+- [x] Progress bar shown for TRANSFERRING files
+- [x] Percentage complete shown for each transfer
 - [x] Download button appears as auto-download on completion
 - [x] Download button downloads the complete file to device
 - [ ] Downloaded files show checkmark or "Downloaded" text (auto-download, no persistent display)

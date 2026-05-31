@@ -47,6 +47,39 @@ export class FileTransfer {
     }
 
     /**
+     * Get progress percentage
+     * @returns {number} Progress percentage (0-100)
+     */
+    getProgress() {
+        if (this.size === 0) return 100;
+        return Math.round((this.bytesTransferred / this.size) * 100);
+    }
+
+    /**
+     * Update transfer progress
+     * @param {number} bytes - Additional bytes transferred
+     */
+    updateProgress(bytes) {
+        this.bytesTransferred += bytes;
+    }
+
+    /**
+     * Update chunk count
+     * @param {number} chunks - Number of chunks received
+     */
+    updateChunks(chunks) {
+        this.chunksReceived += chunks;
+    }
+
+    /**
+     * Set total chunks for this file
+     * @param {number} totalChunks - Total number of chunks
+     */
+    setTotalChunks(totalChunks) {
+        this.totalChunks = totalChunks;
+    }
+
+    /**
      * Transition to a new state
      * @param {string} newState - New state
      * @returns {boolean} True if transition was valid
@@ -78,7 +111,10 @@ export class FileTransfer {
             direction: this.direction,
             createdAt: this.createdAt,
             completedAt: this.completedAt,
-            bytesTransferred: this.bytesTransferred
+            bytesTransferred: this.bytesTransferred,
+            progress: this.getProgress(),
+            chunksReceived: this.chunksReceived,
+            totalChunks: this.totalChunks
         };
     }
 

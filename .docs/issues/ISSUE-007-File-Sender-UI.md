@@ -18,8 +18,8 @@ Implement the user interface for selecting and sending files.
 - [x] File status indicators: PENDING, QUEUED, TRANSFERRING, COMPLETED, FAILED, REJECTED
 - [ ] Cancel button available for pending file offers (not implemented yet)
 - [x] Direction indicator shows implicitly (send vs receive)
-- [ ] Progress bar shown for TRANSFERRING files (UI elements exist but not fully connected)
-- [ ] Percentage complete shown for each transfer (not implemented yet)
+- [x] Progress bar shown for TRANSFERRING files
+- [x] Percentage complete shown for each transfer
 - [ ] Completed files show download button (for receiver to download) (auto-download on completion)
 - [x] Failed/rejected files show appropriate error state
 - [x] UI updates in real-time as state changes

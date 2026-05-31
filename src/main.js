@@ -155,12 +155,18 @@ function updateFileQueueUI() {
     } else {
         let html = '';
         for (const file of files) {
+            const progress = file.getProgress ? file.getProgress() : 0;
+            const state = file.state || 'UNKNOWN';
             html += `
                 <div style="padding: 0.5rem; border-bottom: 1px solid var(--bg-secondary);">
                     <p style="margin: 0; font-size: 0.9rem;">
                         <strong>${file.name}</strong> (${formatFileSize(file.size)})
-                        <span style="color: var(--text-secondary); float: right;">${file.state}</span>
+                        <span style="color: var(--text-secondary); float: right;">${state}</span>
                     </p>
+                    ${progress > 0 && progress < 100 ? `
+                        <progress value="${progress}" max="100" style="width: 100%; margin-top: 0.25rem;"></progress>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">${progress}%</span>
+                    ` : ''}
                 </div>
             `;
         }
@@ -496,6 +502,16 @@ function init() {
         
         // Create download link for received file
         createDownloadLink(file, data);
+    });
+    
+    fileTransferManager.on('fileProgress', (file) => {
+        // Update UI to show progress
+        updateUI();
+    });
+    
+    fileTransferManager.on('fileTransferFailed', (file) => {
+        showFilesAlert(`Transfer failed: ${file.name}`, 'error');
+        updateUI();
     });
     
     // Setup button event listeners (already in HTML, but also here for reference)
