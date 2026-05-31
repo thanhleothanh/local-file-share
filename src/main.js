@@ -7,6 +7,8 @@ import { webrtcManager, ConnectionState } from './modules/webrtcManager.js';
 import { qrHandler } from './modules/qrHandler.js';
 import { fileTransferManager, FileState } from './modules/fileTransfer.js';
 import { chunkHandler } from './utils/chunkHandler.js';
+import { errorHandler } from './utils/errorHandler.js';
+import { storageManager } from './utils/storage.js';
 
 // DOM Elements
 const createConnectionBtn = document.getElementById('createConnectionBtn');
@@ -446,6 +448,14 @@ function showFilesAlert(message, type = 'error') {
 // Initialize UI
 function init() {
     updateUI();
+    
+    // Setup error handler
+    errorHandler.on('showError', ({ message, type }) => {
+        showAlert(message, type);
+    });
+    
+    // Connect storage manager to error handler
+    storageManager.setErrorHandler(errorHandler);
     
     // Setup file input handler
     fileInput.addEventListener('change', handleFileSelection);

@@ -23,6 +23,15 @@ export class StorageManager {
         this.db = null;
         this.initialized = false;
         this.initPromise = null;
+        this.errorHandler = null; // Will be set after circular dependency is resolved
+    }
+
+    /**
+     * Set the error handler (to avoid circular dependency)
+     * @param {Object} handler - Error handler instance
+     */
+    setErrorHandler(handler) {
+        this.errorHandler = handler;
     }
 
     /**
@@ -44,6 +53,12 @@ export class StorageManager {
 
                 request.onerror = (event) => {
                     console.error('IndexedDB open error:', event.target.error);
+                    if (this.errorHandler) {
+                        this.errorHandler.handleStorageError(
+                            event.target.error,
+                            { operation: 'openDatabase' }
+                        );
+                    }
                     reject(event.target.error);
                 };
 

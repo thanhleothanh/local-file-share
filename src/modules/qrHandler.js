@@ -6,6 +6,7 @@
 
 import { BrowserQRCodeReader, BrowserQRCodeSvgWriter } from '@zxing/browser';
 import { compressToBase64, decompressFromBase64, validateQRData, generateSecret } from '../utils/qrCompression.js';
+import { errorHandler } from '../utils/errorHandler.js';
 
 /**
  * QR Handler class
@@ -178,11 +179,15 @@ export class QRHandler {
             try {
                 qrData = JSON.parse(text);
             } catch (parseError) {
+                errorHandler.handleQRError(parseError);
                 throw new Error('Invalid QR code: not valid JSON');
             }
             
             // Validate QR data structure
             if (!validateQRData(qrData)) {
+                errorHandler.handleQRError(
+                    new Error('Invalid QR code: missing required fields or invalid structure')
+                );
                 throw new Error('Invalid QR code: missing required fields or invalid structure');
             }
             
@@ -197,6 +202,7 @@ export class QRHandler {
         } catch (error) {
             console.error('Scan result error:', error);
             this.scanning = false;
+            errorHandler.handleQRError(error);
             if (onError) {
                 onError(error);
             }

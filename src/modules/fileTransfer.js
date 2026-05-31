@@ -7,6 +7,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { webrtcManager, ConnectionState, MessageType } from './webrtcManager.js';
 import { FileTransfer, FileState, FileQueueManager } from '../utils/fileState.js';
+import { errorHandler } from '../utils/errorHandler.js';
 
 export { FileState };
 
@@ -85,7 +86,10 @@ export class FileTransferManager {
         for (const field of requiredFields) {
             if (!(field in message)) {
                 console.error('Invalid FILE_OFFER message: missing field', field);
-                webrtcManager.close(); // Fail-fast (ADR-0006)
+                errorHandler.handleProtocolError(
+                    new Error(`Invalid FILE_OFFER message: missing field ${field}`),
+                    { message, missingField: field }
+                );
                 return;
             }
         }
@@ -100,6 +104,10 @@ export class FileTransferManager {
         // Validate file size (ADR-0005)
         if (message.size > MAX_FILE_SIZE) {
             console.error('File too large:', message.size);
+            errorHandler.handleFileError(
+                new Error(`File too large: ${message.size} bytes (max ${MAX_FILE_SIZE})`),
+                { fileId: message.fileId, fileName: message.name }
+            );
             // Send reject with reason
             this.sendFileReject(message.fileId, 'FILE_TOO_LARGE');
             return;

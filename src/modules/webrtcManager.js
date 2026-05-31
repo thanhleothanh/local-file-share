@@ -7,6 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { compressToBase64, decompressFromBase64, generateSecret, validateQRData } from '../utils/qrCompression.js';
+import { errorHandler, ErrorType, ErrorSeverity } from '../utils/errorHandler.js';
 
 // Connection state constants (ADR-0010)
 export const ConnectionState = {
@@ -265,6 +266,10 @@ export class WebRTCManager {
                     break;
                 case 'failed':
                     this.transitionState(ConnectionState.FAILED);
+                    errorHandler.handleWebRTCError(
+                        new Error('Peer connection failed'),
+                        { connId: this.connectionId, state: this.peerConnection.connectionState }
+                    );
                     break;
                 case 'closed':
                 case 'disconnected':
@@ -276,6 +281,10 @@ export class WebRTCManager {
         this.peerConnection.oniceconnectionstatechange = () => {
             if (this.peerConnection.iceConnectionState === 'failed') {
                 this.transitionState(ConnectionState.FAILED);
+                errorHandler.handleWebRTCError(
+                    new Error('ICE connection failed'),
+                    { connId: this.connectionId, iceState: this.peerConnection.iceConnectionState }
+                );
             }
         };
     }

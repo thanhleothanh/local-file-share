@@ -5,6 +5,7 @@
 
 import { webrtcManager } from '../modules/webrtcManager.js';
 import { fileTransferManager } from '../modules/fileTransfer.js';
+import { errorHandler } from './errorHandler.js';
 
 // Chunk size: 8KB (ADR-0015)
 const CHUNK_SIZE = 8192;
@@ -63,20 +64,31 @@ export class ChunkHandler {
         // Validate data size
         if (data.byteLength < HEADER_SIZE) {
             console.warn('Malformed chunk: too small (', data.byteLength, 'bytes)');
+            errorHandler.handleFileError(
+                new Error(`Malformed chunk: expected at least ${HEADER_SIZE} bytes, got ${data.byteLength}`),
+                { operation: 'parseChunkHeader' }
+            );
             return;
         }
 
-        // Parse header
-        const fileId = new TextDecoder().decode(data.slice(0, 36));
-        const indexBuffer = data.slice(36, 40);
-        const index = new DataView(indexBuffer).getUint32(0, false); // big-endian
-        const isLast = data[40] === 1;
-        const chunkData = data.slice(HEADER_SIZE);
+        try {
+            // Parse header
+            const fileId = new TextDecoder().decode(data.slice(0, 36));
+            const indexBuffer = data.slice(36, 40);
+            const index = new DataView(indexBuffer).getUint32(0, false); // big-endian
+            const isLast = data[40] === 1;
+            const chunkData = data.slice(HEADER_SIZE);
 
-        console.log(`Received chunk: fileId=${fileId.substring(0, 8)}... index=${index} isLast=${isLast} size=${chunkData.byteLength}`);
+            console.log(`Received chunk: fileId=${fileId.substring(0, 8)}... index=${index} isLast=${isLast} size=${chunkData.byteLength}`);
 
-        // Store chunk
-        this.storeChunk(fileId, index, chunkData, isLast);
+            // Store chunk
+            this.storeChunk(fileId, index, chunkData, isLast);
+        } catch (error) {
+            errorHandler.handleFileError(
+                new Error(`Failed to parse chunk: ${error.message}`),
+                { operation: 'parseChunkHeader', error: error.message }
+            );
+        }
     }
 
     /**
