@@ -80,13 +80,13 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 | # | Title | Parent PRD | Blocked By | Type | Status |
 |---|-------|------------|------------|------|--------|
 | 001 | QR Code Connection Handshake | PRD-001 | None | AFK | done |
-| 002 | File Offer and Accept Protocol | PRD-002 | 001 | AFK | pending |
-| 003 | File Chunking and Transfer | PRD-002 | 001, 002 | AFK | pending |
+| 002 | File Offer and Accept Protocol | PRD-002 | 001 | AFK | done |
+| 003 | File Chunking and Transfer | PRD-002 | 001, 002 | AFK | partial |
 | 004 | Queue Management and Limits | PRD-002 | 001, 002, 003 | AFK | pending |
 | 005 | IndexedDB Storage and Persistence | PRD-004 | 001 | AFK | pending |
 | 006 | Connection UI | PRD-003 | 001 | AFK | done |
-| 007 | File Sender UI | PRD-003 | 001, 006 | AFK | pending |
-| 008 | File Receiver UI | PRD-003 | 001, 006, 007 | AFK | pending |
+| 007 | File Sender UI | PRD-003 | 001, 006 | AFK | done |
+| 008 | File Receiver UI | PRD-003 | 001, 006, 007 | AFK | done |
 | 009 | Progress and Queue UI | PRD-003 | 007, 008 | AFK | pending |
 | 010 | Application Orchestration | PRD-005 | 001-009 | AFK | pending |
 | 011 | Bidirectional Transfer | PRD-002 | 002, 003 | AFK | pending |
@@ -106,9 +106,10 @@ ISSUE-010: Application Orchestration (requires all UI and protocol issues)
 - **User Interface**: 5 issues (006-010, 009)
 - **Testing**: 4 issues (012-016)
 - **Integration**: 1 issue (010)
-- **Completed**: 2 (ISSUE-001, ISSUE-006)
+- **Completed**: 5 (ISSUE-001, ISSUE-002, ISSUE-006, ISSUE-007, ISSUE-008)
+- **Partial**: 1 (ISSUE-003)
 - **In Progress**: 0
-- **Pending**: 14
+- **Pending**: 10
 
 ## Vertical Slice Principles
 

@@ -5,6 +5,8 @@
 
 import { webrtcManager, ConnectionState } from './modules/webrtcManager.js';
 import { qrHandler } from './modules/qrHandler.js';
+import { fileTransferManager, FileState } from './modules/fileTransfer.js';
+import { chunkHandler } from './utils/chunkHandler.js';
 
 // DOM Elements
 const createConnectionBtn = document.getElementById('createConnectionBtn');
@@ -25,9 +27,39 @@ const connIdDisplay = document.getElementById('connIdDisplay');
 const connSecretDisplay = document.getElementById('connSecretDisplay');
 const connStateDisplay = document.getElementById('connStateDisplay');
 
+// File UI Elements
+const fileInput = document.getElementById('fileInput');
+const selectFilesBtn = document.getElementById('selectFilesBtn');
+const filesAlert = document.getElementById('filesAlert');
+const fileSendProgress = document.getElementById('fileSendProgress');
+const sendingFileName = document.getElementById('sendingFileName');
+const sendProgress = document.getElementById('sendProgress');
+const sendProgressText = document.getElementById('sendProgressText');
+const pendingOffers = document.getElementById('pendingOffers');
+const offerFileName = document.getElementById('offerFileName');
+const offerFileSize = document.getElementById('offerFileSize');
+const acceptFileBtn = document.getElementById('acceptFileBtn');
+const rejectFileBtn = document.getElementById('rejectFileBtn');
+const fileQueue = document.getElementById('fileQueue');
+const noConnectionFilesMsg = document.getElementById('noConnectionFilesMsg');
+
 // State management
 let currentScanMode = null; // 'OFFER' or 'ANSWER'
 let offerQRData = null;
+let currentSendingFile = null;
+let pendingOfferFile = null; // Currently displayed pending offer
+
+/**
+ * Format file size for display
+ * @param {number} bytes - File size in bytes
+ * @returns {string} Formatted size
+ */
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
 
 /**
  * Update UI based on connection state
@@ -35,6 +67,8 @@ let offerQRData = null;
 function updateUI() {
     const state = webrtcManager.state;
     const info = webrtcManager.getConnectionInfo();
+    const isConnected = webrtcManager.isConnected();
+    const isConnecting = webrtcManager.isConnecting();
     
     // Update status indicator and text
     connStatusIndicator.className = 'status-indicator';
@@ -75,19 +109,61 @@ function updateUI() {
         connectionInfo.style.display = 'none';
     }
     
-    // Update button states
-    const isConnecting = webrtcManager.isConnecting();
-    const isConnected = webrtcManager.isConnected();
+    // Update connection-dependent UI
+    noConnectionFilesMsg.style.display = isConnected ? 'none' : 'block';
     
+    // Update button states
     createConnectionBtn.disabled = isConnecting || isConnected;
     scanOfferBtn.disabled = isConnecting || isConnected || qrHandler.isScanning();
     scanAnswerBtn.disabled = !offerQRData || isConnected || qrHandler.isScanning();
     closeConnectionBtn.disabled = !isConnected;
+    selectFilesBtn.disabled = !isConnected;
     
     // Show/hide QR containers
     offerQRContainer.style.display = offerQRData ? 'block' : 'none';
     answerQRContainer.style.display = 
         (state === ConnectionState.CONNECTING && currentScanMode === 'OFFER') ? 'block' : 'none';
+    
+    // Update file queue display
+    updateFileQueueUI();
+}
+
+/**
+ * Update file queue UI
+ */
+function updateFileQueueUI() {
+    const files = fileTransferManager.getAllFiles();
+    const pending = fileTransferManager.getFilesByState(FileState.PENDING);
+    
+    // Update pending offers display
+    if (pending.length > 0) {
+        const firstPending = pending[0];
+        offerFileName.textContent = firstPending.name;
+        offerFileSize.textContent = formatFileSize(firstPending.size);
+        pendingOffers.style.display = 'block';
+        pendingOfferFile = firstPending;
+    } else {
+        pendingOffers.style.display = 'none';
+        pendingOfferFile = null;
+    }
+    
+    // Update file queue list
+    if (files.length === 0) {
+        fileQueue.innerHTML = '<p style="color: var(--text-secondary);">No files in queue</p>';
+    } else {
+        let html = '';
+        for (const file of files) {
+            html += `
+                <div style="padding: 0.5rem; border-bottom: 1px solid var(--bg-secondary);">
+                    <p style="margin: 0; font-size: 0.9rem;">
+                        <strong>${file.name}</strong> (${formatFileSize(file.size)})
+                        <span style="color: var(--text-secondary); float: right;">${file.state}</span>
+                    </p>
+                </div>
+            `;
+        }
+        fileQueue.innerHTML = html;
+    }
 }
 
 /**
@@ -273,16 +349,169 @@ webrtcManager.on('idleTimeout', () => {
     updateUI();
 });
 
+/**
+ * Handle file selection
+ */
+function handleFileSelection(event) {
+    const files = Array.from(event.target.files);
+    if (files.length === 0) return;
+    
+    // Select files for transfer
+    const fileTransfers = fileTransferManager.selectFiles(files);
+    
+    if (fileTransfers.length > 0) {
+        showFilesAlert(`${fileTransfers.length} file(s) selected for transfer`, 'success');
+        
+        // Start sending first file
+        const firstFile = fileTransfers[0];
+        startSendingFile(firstFile);
+    } else {
+        showFilesAlert('No valid files selected (check file size)', 'error');
+    }
+    
+    // Reset file input
+    event.target.value = '';
+    updateUI();
+}
+
+/**
+ * Start sending a file
+ * @param {FileTransfer} fileTransfer - File to send
+ */
+async function startSendingFile(fileTransfer) {
+    try {
+        currentSendingFile = fileTransfer;
+        
+        // Show progress UI
+        sendingFileName.textContent = fileTransfer.name;
+        fileSendProgress.style.display = 'block';
+        
+        // Get the actual File object from the input
+        // For now, we'll just show progress but the actual chunk sending
+        // will be handled when the receiver accepts
+        
+        // Update state
+        fileTransfer.transitionState(FileState.PENDING);
+        
+        updateUI();
+        
+    } catch (error) {
+        console.error('Failed to start sending file:', error);
+        showFilesAlert('Failed to start transfer: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Accept a file offer
+ */
+function acceptFileOffer() {
+    if (pendingOfferFile) {
+        fileTransferManager.sendFileAccept(pendingOfferFile.fileId);
+        showFilesAlert(`Accepted: ${pendingOfferFile.name}`, 'success');
+        pendingOfferFile = null;
+        pendingOffers.style.display = 'none';
+        updateUI();
+    }
+}
+
+/**
+ * Reject a file offer
+ */
+function rejectFileOffer() {
+    if (pendingOfferFile) {
+        fileTransferManager.sendFileReject(pendingOfferFile.fileId, 'USER_REJECTED');
+        showFilesAlert(`Rejected: ${pendingOfferFile.name}`, 'success');
+        pendingOfferFile = null;
+        pendingOffers.style.display = 'none';
+        updateUI();
+    }
+}
+
+/**
+ * Show files alert message
+ * @param {string} message - Message to display
+ * @param {string} type - 'error' or 'success'
+ */
+function showFilesAlert(message, type = 'error') {
+    filesAlert.textContent = message;
+    filesAlert.className = 'alert alert-' + type;
+    filesAlert.style.display = 'block';
+    
+    // Hide after 5 seconds
+    setTimeout(() => {
+        filesAlert.style.display = 'none';
+    }, 5000);
+}
+
 // Initialize UI
 function init() {
     updateUI();
     
+    // Setup file input handler
+    fileInput.addEventListener('change', handleFileSelection);
+    
+    // Setup file transfer event listeners
+    fileTransferManager.on('fileOfferSent', (file) => {
+        showFilesAlert(`Offer sent: ${file.name}`, 'success');
+        updateUI();
+    });
+    
+    fileTransferManager.on('fileOfferReceived', (file) => {
+        showFilesAlert(`File offer received: ${file.name} (${formatFileSize(file.size)})`, 'success');
+        updateUI();
+    });
+    
+    fileTransferManager.on('fileAccepted', (file) => {
+        showFilesAlert(`File accepted: ${file.name}`, 'success');
+        updateUI();
+    });
+    
+    fileTransferManager.on('fileRejected', (file) => {
+        showFilesAlert(`File rejected: ${file.name}`, 'error');
+        updateUI();
+    });
+    
+    fileTransferManager.on('fileCancelled', (file) => {
+        showFilesAlert(`File cancelled: ${file.name}`, 'error');
+        updateUI();
+    });
+    
+    fileTransferManager.on('fileError', (error) => {
+        showFilesAlert(`File error: ${error.error}`, 'error');
+    });
+    
+    // Setup chunk handler events
+    chunkHandler.on('fileDataComplete', ({ file, data }) => {
+        showFilesAlert(`File received: ${file.name} (${formatFileSize(data.byteLength)})`, 'success');
+        
+        // Create download link for received file
+        createDownloadLink(file, data);
+    });
+    
     // Setup button event listeners (already in HTML, but also here for reference)
     // Buttons use onclick in HTML for simplicity
+}
+
+/**
+ * Create a download link for a received file
+ * @param {FileTransfer} file - File metadata
+ * @param {ArrayBuffer} data - File data
+ */
+function createDownloadLink(file, data) {
+    const blob = new Blob([data], { type: file.mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 // Start the application
 init();
 
 // Export for testing
-export { createConnection, scanQRCode, closeConnection, updateUI, showAlert };
+export { createConnection, scanQRCode, closeConnection, updateUI, showAlert, formatFileSize };

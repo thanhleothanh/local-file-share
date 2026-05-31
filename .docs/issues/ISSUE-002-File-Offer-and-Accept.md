@@ -7,20 +7,20 @@ PRD-002: File Transfer Protocol
 Implement the file offer and acceptance protocol over the control channel. This includes sending FILE_OFFER messages, displaying offers to the receiver, accepting/rejecting offers, and transitioning file state appropriately.
 
 ## Acceptance criteria
-- [ ] User can select files to send (single or multiple)
-- [ ] Selected files are validated (size <= 500MB) (ADR-0005)
-- [ ] FILE_OFFER message sent over control channel with metadata: `{type: "FILE_OFFER", connId, fileId, name, size, mime}`
-- [ ] Receiver displays incoming file offer notification with file details (name, size, type)
-- [ ] Receiver can accept file offer (sends FILE_ACCEPT: `{type: "FILE_ACCEPT", connId, fileId}`)
-- [ ] Receiver can reject file offer (sends FILE_REJECT: `{type: "FILE_REJECT", connId, fileId}`)
-- [ ] Sender receives accept/reject response and updates file state
-- [ ] Accepted files transition to QUEUED state if another file is TRANSFERRING
-- [ ] Accepted files transition to TRANSFERRING state if no file is TRANSFERRING
-- [ ] Rejected files transition to REJECTED state and are cleaned up
-- [ ] Sender can cancel pending file offers (sends CANCELLED message)
-- [ ] File state machine implemented: PENDING -> QUEUED/REJECTED/FAILED
-- [ ] Control channel uses JSON message format (ADR-0013)
-- [ ] Fail-fast: any protocol error closes connection (ADR-0006)
+- [x] User can select files to send (single or multiple)
+- [x] Selected files are validated (size <= 500MB) (ADR-0005)
+- [x] FILE_OFFER message sent over control channel with metadata: `{type: "FILE_OFFER", connId, fileId, name, size, mime}`
+- [x] Receiver displays incoming file offer notification with file details (name, size, type)
+- [x] Receiver can accept file offer (sends FILE_ACCEPT: `{type: "FILE_ACCEPT", connId, fileId}`)
+- [x] Receiver can reject file offer (sends FILE_REJECT: `{type: "FILE_REJECT", connId, fileId}`)
+- [x] Sender receives accept/reject response and updates file state
+- [x] Accepted files transition to QUEUED state if another file is TRANSFERRING
+- [x] Accepted files transition to TRANSFERRING state if no file is TRANSFERRING
+- [x] Rejected files transition to REJECTED state and are cleaned up
+- [x] Sender can cancel pending file offers (sends CANCELLED message)
+- [x] File state machine implemented: PENDING -> QUEUED/REJECTED/FAILED (ADR-0011)
+- [x] Control channel uses JSON message format (ADR-0013)
+- [x] Fail-fast: any protocol error closes connection (ADR-0006)
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake - provides control channel)

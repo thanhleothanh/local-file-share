@@ -332,7 +332,39 @@
             <div class="panel">
                 <h2>Files</h2>
                 <div id="filesAlert" class="alert" style="display: none;"></div>
-                <p style="color: var(--text-secondary);">Connection required for file transfer.</p>
+                
+                <div class="section">
+                    <h3>Send Files</h3>
+                    <input type="file" id="fileInput" multiple style="display: none;" accept="*" />
+                    <div class="qr-actions">
+                        <button class="btn btn-primary" id="selectFilesBtn" onclick="document.getElementById('fileInput').click()" disabled>
+                            Select Files to Send
+                        </button>
+                    </div>
+                    <div id="fileSendProgress" style="display: none; margin-top: 1rem;">
+                        <p><strong>Sending:</strong> <span id="sendingFileName"></span></p>
+                        <progress id="sendProgress" value="0" max="100" style="width: 100%;"></progress>
+                        <span id="sendProgressText">0%</span>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h3>Incoming Files</h3>
+                    <div id="pendingOffers" style="display: none;">
+                        <p><strong>Incoming offer:</strong> <span id="offerFileName"></span> (<span id="offerFileSize"></span>)</p>
+                        <div class="qr-actions">
+                            <button class="btn btn-primary" id="acceptFileBtn" onclick="acceptFileOffer()">Accept</button>
+                            <button class="btn btn-danger" id="rejectFileBtn" onclick="rejectFileOffer()">Reject</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h3>Transfer Queue</h3>
+                    <div id="fileQueue" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+                
+                <p style="color: var(--text-secondary); display: none;" id="noConnectionFilesMsg">Connection required for file transfer.</p>
             </div>
         </div>
     </div>

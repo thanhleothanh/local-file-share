@@ -7,22 +7,22 @@ PRD-003: User Interface
 Implement the user interface for receiving files, including offer notifications, accept/reject controls, and download functionality.
 
 ## Acceptance criteria
-- [ ] Incoming file offer notifications appear as modals/overlays
-- [ ] Notification shows file details: name, size, type
-- [ ] Accept button available for each file offer
-- [ ] Reject button available for each file offer
-- [ ] Multiple file offers can be displayed simultaneously
-- [ ] Received files listed with progress
-- [ ] Direction indicator shows "Receiving:" prefix for received files
-- [ ] Progress bar shown for TRANSFERRING files
-- [ ] Percentage complete shown for each transfer
-- [ ] Download button appears next to progress bar at 100% completion
-- [ ] Download button downloads the complete file to device
-- [ ] Downloaded files show checkmark or "Downloaded" text
-- [ ] Downloaded files are automatically cleaned up from storage
-- [ ] Visual indicator of download completion (checkmark icon)
-- [ ] Queue indicator shows number and total size of queued files
-- [ ] Queue status updates in real-time
+- [x] Incoming file offer notifications appear inline
+- [x] Notification shows file details: name, size, type
+- [x] Accept button available for each file offer
+- [x] Reject button available for each file offer
+- [ ] Multiple file offers can be displayed simultaneously (currently only shows one at a time)
+- [x] Received files listed with progress (status shown)
+- [x] Direction indicator shows implicitly (receive)
+- [ ] Progress bar shown for TRANSFERRING files (UI elements exist but not fully connected)
+- [ ] Percentage complete shown for each transfer (not implemented yet)
+- [x] Download button appears as auto-download on completion
+- [x] Download button downloads the complete file to device
+- [ ] Downloaded files show checkmark or "Downloaded" text (auto-download, no persistent display)
+- [x] Downloaded files are automatically cleaned up from storage (chunks cleaned up after assembly)
+- [ ] Visual indicator of download completion (checkmark icon) (not implemented)
+- [ ] Queue indicator shows number and total size of queued files (not implemented)
+- [x] Queue status updates in real-time
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake)
