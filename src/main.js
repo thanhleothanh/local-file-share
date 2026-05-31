@@ -43,6 +43,7 @@ const offerFileSize = document.getElementById('offerFileSize');
 const acceptFileBtn = document.getElementById('acceptFileBtn');
 const rejectFileBtn = document.getElementById('rejectFileBtn');
 const fileQueue = document.getElementById('fileQueue');
+const queueStatus = document.getElementById('queueStatus');
 const noConnectionFilesMsg = document.getElementById('noConnectionFilesMsg');
 
 // State management
@@ -136,6 +137,15 @@ function updateUI() {
 function updateFileQueueUI() {
     const files = fileTransferManager.getAllFiles();
     const pending = fileTransferManager.getFilesByState(FileState.PENDING);
+    const queueInfo = fileTransferManager.getQueueInfo();
+    
+    // Update queue status
+    if (files.length > 0) {
+        queueStatus.textContent = `${queueInfo.fileCount} file(s), ${formatFileSize(queueInfo.totalBytes)} queued`;
+        queueStatus.style.display = 'block';
+    } else {
+        queueStatus.style.display = 'none';
+    }
     
     // Update pending offers display
     if (pending.length > 0) {

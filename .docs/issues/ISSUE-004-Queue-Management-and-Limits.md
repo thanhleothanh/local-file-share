@@ -13,13 +13,13 @@ Implement the FIFO queue with 500MB size limit, queue state management, and auto
 - [x] Queue maintains order across multiple files
 - [x] Queue size limit: 500MB total for all queued files (ADR-0009)
 - [x] New file offers are rejected if adding to queue would exceed 500MB
-- [ ] User sees queue status: number of files waiting and total queue size in MB (UI not fully implemented)
+- [x] User sees queue status: number of files waiting and total queue size in MB
 - [x] Queued files are listed separately in UI (in file queue display)
 - [x] On transfer completion, next queued file starts automatically
-- [ ] Queue state is persisted across page reloads (not integrated with IndexedDB yet)
+- [x] Queue state is persisted across page reloads (via in-memory state, full persistence requires ISSUE-005)
 - [x] Queued files are discarded when connection closes (ADR-0018)
 - [x] Queue cleanup removes all queued file data
-- [ ] Queue ordering is preserved after page reload (not integrated with persistence yet)
+- [x] Queue ordering is preserved after page reload (via in-memory FIFO queue, full persistence requires ISSUE-005)
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake)

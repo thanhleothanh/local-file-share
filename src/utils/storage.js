@@ -595,17 +595,27 @@ export class StorageManager {
         await this.ensureInit();
 
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(STORE_QUEUE, 'readwrite');
-            const store = transaction.objectStore(STORE_QUEUE);
+            try {
+                const transaction = this.db.transaction(STORE_QUEUE, 'readwrite');
+                const store = transaction.objectStore(STORE_QUEUE);
 
-            const request = store.put({
-                connId,
-                fileId,
-                order
-            });
+                const request = store.put({
+                    connId,
+                    fileId,
+                    order,
+                    addedAt: Date.now()
+                });
 
-            request.onsuccess = () => resolve();
-            request.onerror = (event) => reject(event.target.error);
+                request.onsuccess = () => resolve();
+                request.onerror = (event) => {
+                    if (this.errorHandler) {
+                        this.errorHandler.handleStorageError(event.target.error, { operation: 'addToQueue' });
+                    }
+                    reject(event.target.error);
+                };
+            } catch (error) {
+                reject(error);
+            }
         });
     }
 
