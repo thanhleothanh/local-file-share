@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local File Share</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #0f3460;
+            --text-primary: #eaeaea;
+            --text-secondary: #a0a0a0;
+            --accent: #00d4ff;
+            --accent-alt: #0099cc;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --error: #f44336;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        header h1 {
+            font-size: 2rem;
+            color: var(--accent);
+        }
+        
+        .app-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+        
+        @media (max-width: 768px) {
+            .app-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .panel {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        
+        .panel h2 {
+            color: var(--accent);
+            margin-bottom: 1rem;
+            font-size: 1.25rem;
+        }
+        
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+        }
+        
+        .status-indicator.connected {
+            background: var(--success);
+        }
+        
+        .status-indicator.connecting {
+            background: var(--warning);
+            animation: pulse 1s infinite;
+        }
+        
+        .status-indicator.failed {
+            background: var(--error);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .status-text {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-alt);
+        }
+        
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background: #253450;
+        }
+        
+        .btn-danger {
+            background: var(--error);
+            color: white;
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            background: #d32f2f;
+        }
+        
+        .qr-container {
+            text-align: center;
+            margin: 1rem 0;
+        }
+        
+        .qr-container canvas,
+        .qr-container img {
+            max-width: 100%;
+            max-height: 300px;
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .qr-actions {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+        
+        .scanner-view {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            background: #222;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .scanner-view video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .scanner-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+        }
+        
+        .scanner-guide {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(15, 52, 96, 0.9);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            color: var(--accent);
+            pointer-events: none;
+        }
+        
+        .connection-info {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .connection-info p {
+            margin: 0.25rem 0;
+        }
+        
+        .connection-info code {
+            color: var(--accent);
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .alert-error {
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+        
+        .alert-success {
+            background: rgba(76, 175, 80, 0.1);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+        
+        .section {
+            margin-bottom: 1.5rem;
+        }
+        
+        .section:last-child {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Local File Share</h1>
+            <p>Peer-to-peer file sharing via QR code connection</p>
+        </header>
+        
+        <div class="app-grid">
+            <!-- Connection Panel -->
+            <div class="panel">
+                <h2>Connection</h2>
+                <div class="status-bar">
+                    <div class="status-indicator" id="connStatusIndicator"></div>
+                    <span class="status-text" id="connStatusText">Not connected</span>
+                </div>
+                
+                <div id="connectionAlert" class="alert" style="display: none;"></div>
+                
+                <div class="section">
+                    <h3>Step 1: Create Offer</h3>
+                    <div class="qr-actions">
+                        <button class="btn btn-primary" id="createConnectionBtn" onclick="createConnection()">
+                            Create Connection
+                        </button>
+                    </div>
+                    <div class="qr-container" id="offerQRContainer" style="display: none;">
+                        <canvas id="offerQRCanvas"></canvas>
+                        <p style="margin-top: 0.5rem; color: var(--text-secondary);">Show this QR to the other device</p>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h3>Step 2: Scan Offer & Create Answer</h3>
+                    <div class="qr-actions">
+                        <button class="btn btn-primary" id="scanOfferBtn" onclick="scanQRCode('OFFER')">
+                            Scan Offer QR Code
+                        </button>
+                    </div>
+                    <div class="scanner-view" id="scannerView" style="display: none;">
+                        <video id="scannerVideo" autoplay playsinline></video>
+                        <div class="scanner-overlay"></div>
+                        <div class="scanner-guide">Scan the Offer QR Code</div>
+                    </div>
+                    <div class="qr-container" id="answerQRContainer" style="display: none;">
+                        <canvas id="answerQRCanvas"></canvas>
+                        <p style="margin-top: 0.5rem; color: var(--text-secondary);">Show this QR to the initiator</p>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h3>Step 3: Scan Answer</h3>
+                    <div class="qr-actions">
+                        <button class="btn btn-primary" id="scanAnswerBtn" onclick="scanQRCode('ANSWER')" disabled>
+                            Scan Answer QR Code
+                        </button>
+                        <button class="btn btn-danger" id="closeConnectionBtn" onclick="closeConnection()" disabled>
+                            Close Connection
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="connection-info" id="connectionInfo" style="display: none;">
+                    <p><strong>Connection ID:</strong> <code id="connIdDisplay"></code></p>
+                    <p><strong>Secret:</strong> <code id="connSecretDisplay"></code></p>
+                    <p><strong>State:</strong> <code id="connStateDisplay"></code></p>
+                </div>
+            </div>
+            
+            <!-- Files Panel -->
+            <div class="panel">
+                <h2>Files</h2>
+                <div id="filesAlert" class="alert" style="display: none;"></div>
+                <p style="color: var(--text-secondary);">Connection required for file transfer.</p>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>

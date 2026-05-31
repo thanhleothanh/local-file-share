@@ -1,0 +1,608 @@
+/**
+ * WebRTC Manager
+ * Manages WebRTC peer connection lifecycle and data channels
+ * Handles offer/answer exchange and ICE candidate gathering
+ * (ADR-0002, ADR-0007, ADR-0010)
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import { compressToBase64, decompressFromBase64, generateSecret, validateQRData } from '../utils/qrCompression.js';
+
+// Connection state constants (ADR-0010)
+export const ConnectionState = {
+    NEW: 'NEW',           // After QR #1 created, before QR #2 scanned
+    CONNECTING: 'CONNECTING', // WebRTC handshake in progress
+    CONNECTED: 'CONNECTED',   // Data channels open, no active transfer
+    TRANSFERRING: 'TRANSFERRING', // File transfer in progress
+    FAILED: 'FAILED',       // Connection error occurred
+    CLOSED: 'CLOSED'        // Terminal state, connection closed
+};
+
+// Message types for control channel
+export const MessageType = {
+    FILE_OFFER: 'FILE_OFFER',
+    FILE_ACCEPT: 'FILE_ACCEPT',
+    FILE_REJECT: 'FILE_REJECT',
+    FILE_CHUNK: 'FILE_CHUNK',
+    TRANSFER_DONE: 'TRANSFER_DONE',
+    CLOSE: 'CLOSE',
+    CANCELLED: 'CANCELLED',
+    PING: 'PING',
+    PONG: 'PONG'
+};
+
+/**
+ * WebRTC Manager class
+ * Manages a single WebRTC connection with control and data channels
+ */
+export class WebRTCManager {
+    constructor() {
+        this.peerConnection = null;
+        this.controlChannel = null;
+        this.dataChannel = null;
+        this.connectionId = null;
+        this.secret = null;
+        this.state = ConnectionState.CLOSED;
+        this.idleTimer = null;
+        this.idleTimeout = 5 * 60 * 1000; // 5 minutes
+        this.eventListeners = {};
+        this.pendingIceCandidates = [];
+    }
+
+    /**
+     * Register an event listener
+     * @param {string} event - Event name
+     * @param {Function} callback - Callback function
+     */
+    on(event, callback) {
+        if (!this.eventListeners[event]) {
+            this.eventListeners[event] = [];
+        }
+        this.eventListeners[event].push(callback);
+    }
+
+    /**
+     * Emit an event to all listeners
+     * @param {string} event - Event name
+     * @param {...any} args - Arguments to pass to listeners
+     */
+    emit(event, ...args) {
+        if (this.eventListeners[event]) {
+            for (const listener of this.eventListeners[event]) {
+                listener(...args);
+            }
+        }
+    }
+
+    /**
+     * Generate a new offer QR code
+     * Creates a WebRTC offer and packages it into a QR code payload
+     * @returns {Promise<{qrData: Object, connId: string, secret: string}>}
+     */
+    async generateOfferQR() {
+        // Generate connection ID and secret
+        this.connectionId = uuidv4();
+        this.secret = generateSecret(16);
+        
+        // Create peer connection
+        this.peerConnection = this.createPeerConnection();
+        
+        // Setup event handlers
+        this.setupPeerConnectionHandlers();
+        
+        // Create data channels
+        await this.setupDataChannels();
+        
+        // Create offer
+        const offer = await this.peerConnection.createOffer();
+        await this.peerConnection.setLocalDescription(offer);
+        
+        // Wait for ICE candidates to be gathered
+        await this.waitForIceCandidates();
+        
+        // Get all ICE candidates
+        const iceCandidates = this.getAllIceCandidates();
+        
+        // Compress and encode
+        const payload = compressToBase64({
+            sdp: offer.sdp,
+            ice: iceCandidates
+        });
+        
+        const qrData = {
+            type: 'OFFER',
+            payload,
+            secret: this.secret,
+            connId: this.connectionId
+        };
+        
+        // Transition to NEW state (ADR-0010)
+        this.transitionState(ConnectionState.NEW);
+        
+        return { qrData, connId: this.connectionId, secret: this.secret };
+    }
+
+    /**
+     * Process a scanned offer QR code and generate answer QR
+     * @param {Object} qrData - Parsed QR code data
+     * @returns {Promise<{qrData: Object, connId: string, secret: string}>}
+     */
+    async processOfferQR(qrData) {
+        if (!validateQRData(qrData) || qrData.type !== 'OFFER') {
+            throw new Error('Invalid offer QR code');
+        }
+        
+        // Store connection info from offer
+        this.connectionId = qrData.connId;
+        this.secret = qrData.secret;
+        
+        // Decompress payload
+        const { sdp, ice } = decompressFromBase64(qrData.payload);
+        
+        // Create peer connection
+        this.peerConnection = this.createPeerConnection();
+        this.setupPeerConnectionHandlers();
+        
+        // Set remote description
+        await this.peerConnection.setRemoteDescription({
+            type: 'offer',
+            sdp
+        });
+        
+        // Add ICE candidates from offer
+        for (const candidate of ice) {
+            await this.peerConnection.addIceCandidate(candidate);
+        }
+        
+        // Create data channels
+        await this.setupDataChannels();
+        
+        // Create answer
+        const answer = await this.peerConnection.createAnswer();
+        await this.peerConnection.setLocalDescription(answer);
+        
+        // Wait for ICE candidates
+        await this.waitForIceCandidates();
+        
+        // Get all ICE candidates
+        const iceCandidates = this.getAllIceCandidates();
+        
+        // Compress and encode answer
+        const payload = compressToBase64({
+            sdp: answer.sdp,
+            ice: iceCandidates
+        });
+        
+        const answerQRData = {
+            type: 'ANSWER',
+            payload,
+            secret: this.secret,
+            connId: this.connectionId
+        };
+        
+        // Transition to CONNECTING state
+        this.transitionState(ConnectionState.CONNECTING);
+        
+        return { qrData: answerQRData, connId: this.connectionId, secret: this.secret };
+    }
+
+    /**
+     * Process a scanned answer QR code and complete the connection
+     * @param {Object} qrData - Parsed QR code data
+     * @returns {Promise<void>}
+     */
+    async processAnswerQR(qrData) {
+        if (!validateQRData(qrData) || qrData.type !== 'ANSWER') {
+            throw new Error('Invalid answer QR code');
+        }
+        
+        // Verify connection ID and secret match
+        if (qrData.connId !== this.connectionId) {
+            throw new Error('Connection ID mismatch: answer does not match offer');
+        }
+        
+        if (qrData.secret !== this.secret) {
+            throw new Error('Secret mismatch: answer does not match offer');
+        }
+        
+        // Decompress payload
+        const { sdp, ice } = decompressFromBase64(qrData.payload);
+        
+        // Set remote description
+        await this.peerConnection.setRemoteDescription({
+            type: 'answer',
+            sdp
+        });
+        
+        // Add ICE candidates from answer
+        for (const candidate of ice) {
+            await this.peerConnection.addIceCandidate(candidate);
+        }
+        
+        // Transition to CONNECTING state - wait for actual connection
+        // The connection will transition to CONNECTED when data channels open
+        // (handled in setupChannelHandlers)
+        this.transitionState(ConnectionState.CONNECTING);
+    }
+
+    /**
+     * Create a new RTCPeerConnection
+     * @returns {RTCPeerConnection}
+     */
+    createPeerConnection() {
+        const iceServers = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+        };
+        
+        return new RTCPeerConnection(iceServers);
+    }
+
+    /**
+     * Setup event handlers for peer connection
+     */
+    setupPeerConnectionHandlers() {
+        this.peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                this.pendingIceCandidates.push({
+                    candidate: event.candidate.candidate,
+                    sdpMid: event.candidate.sdpMid,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex
+                });
+            }
+        };
+
+        this.peerConnection.onconnectionstatechange = () => {
+            switch (this.peerConnection.connectionState) {
+                case 'connected':
+                case 'completed':
+                    if (this.state === ConnectionState.CONNECTING) {
+                        // Wait for data channels to open
+                    }
+                    break;
+                case 'failed':
+                    this.transitionState(ConnectionState.FAILED);
+                    break;
+                case 'closed':
+                case 'disconnected':
+                    this.transitionState(ConnectionState.CLOSED);
+                    break;
+            }
+        };
+
+        this.peerConnection.oniceconnectionstatechange = () => {
+            if (this.peerConnection.iceConnectionState === 'failed') {
+                this.transitionState(ConnectionState.FAILED);
+            }
+        };
+    }
+
+    /**
+     * Setup control and data data channels
+     * @returns {Promise<void>}
+     */
+    async setupDataChannels() {
+        // Create control channel (ADR-0007)
+        this.controlChannel = this.peerConnection.createDataChannel('control', {
+            ordered: true,
+            maxRetransmits: 0 // Reliable
+        });
+        
+        // Create data channel (ADR-0007)
+        this.dataChannel = this.peerConnection.createDataChannel('data', {
+            ordered: true,
+            maxRetransmits: 0 // Reliable
+        });
+        
+        // Setup channel handlers
+        this.setupChannelHandlers(this.controlChannel, 'control');
+        this.setupChannelHandlers(this.dataChannel, 'data');
+        
+        // Handle incoming data channels (for the answer side)
+        this.peerConnection.ondatachannel = (event) => {
+            const channel = event.channel;
+            if (channel.label === 'control') {
+                this.controlChannel = channel;
+                this.setupChannelHandlers(channel, 'control');
+            } else if (channel.label === 'data') {
+                this.dataChannel = channel;
+                this.setupChannelHandlers(channel, 'data');
+            } else {
+                console.warn('Unknown data channel:', channel.label);
+                channel.close();
+            }
+        };
+    }
+
+    /**
+     * Setup handlers for a data channel
+     * @param {RTCDataChannel} channel - The data channel
+     * @param {string} channelName - Channel name ('control' or 'data')
+     */
+    setupChannelHandlers(channel, channelName) {
+        channel.onopen = () => {
+            console.log(`${channelName} channel opened`);
+            if (channelName === 'control') {
+                // If we were waiting for channels to open, transition to CONNECTED
+                // This happens after answer QR is scanned and peer connection is established
+                if (this.state === ConnectionState.CONNECTING) {
+                    // Wait a bit for data channel to also open, then transition
+                    setTimeout(() => {
+                        if (this.state === ConnectionState.CONNECTING &&
+                            this.peerConnection.connectionState === 'connected') {
+                            this.transitionState(ConnectionState.CONNECTED);
+                            this.startIdleTimer();
+                            this.emit('connected');
+                        }
+                    }, 100);
+                }
+            }
+        };
+
+        channel.onclose = () => {
+            console.log(`${channelName} channel closed`);
+            if (channelName === 'control') {
+                this.controlChannel = null;
+            } else if (channelName === 'data') {
+                this.dataChannel = null;
+            }
+            if (this.state !== ConnectionState.FAILED && this.state !== ConnectionState.CLOSED) {
+                this.transitionState(ConnectionState.CLOSED);
+            }
+        };
+
+        channel.onerror = (error) => {
+            console.error(`${channelName} channel error:`, error);
+            if (this.state !== ConnectionState.CLOSED) {
+                this.transitionState(ConnectionState.FAILED);
+            }
+        };
+
+        channel.onmessage = (event) => {
+            this.resetIdleTimer();
+            if (channelName === 'control') {
+                this.handleControlMessage(event.data);
+            } else if (channelName === 'data') {
+                this.handleDataMessage(event.data);
+            }
+        };
+    }
+
+    /**
+     * Handle incoming control messages
+     * @param {string|ArrayBuffer} data - Message data
+     */
+    handleControlMessage(data) {
+        if (typeof data === 'string') {
+            try {
+                const message = JSON.parse(data);
+                console.log('Control message received:', message);
+                this.emit('controlMessage', message);
+            } catch (error) {
+                console.error('Failed to parse control message:', error);
+            }
+        }
+    }
+
+    /**
+     * Handle incoming data messages (file chunks)
+     * @param {string|ArrayBuffer} data - Message data
+     */
+    handleDataMessage(data) {
+        this.emit('dataMessage', data);
+    }
+
+    /**
+     * Send a control message
+     * @param {Object} message - Message object
+     */
+    sendControlMessage(message) {
+        if (this.controlChannel && this.controlChannel.readyState === 'open') {
+            this.controlChannel.send(JSON.stringify(message));
+            this.resetIdleTimer();
+        } else {
+            console.warn('Control channel not open, cannot send message');
+        }
+    }
+
+    /**
+     * Send a data message (file chunk)
+     * @param {ArrayBuffer} data - Binary data
+     */
+    sendDataMessage(data) {
+        if (this.dataChannel && this.dataChannel.readyState === 'open') {
+            this.dataChannel.send(data);
+            this.resetIdleTimer();
+        } else {
+            console.warn('Data channel not open, cannot send message');
+        }
+    }
+
+    /**
+     * Wait for ICE candidates to be gathered
+     * @returns {Promise<void>}
+     */
+    waitForIceCandidates() {
+        return new Promise((resolve) => {
+            const checkCandidates = () => {
+                if (this.peerConnection && 
+                    this.peerConnection.iceGatheringState === 'complete') {
+                    resolve();
+                } else {
+                    setTimeout(checkCandidates, 100);
+                }
+            };
+            checkCandidates();
+        });
+    }
+
+    /**
+     * Get all ICE candidates from local description
+     * @returns {Array} Array of ICE candidate objects
+     */
+    getAllIceCandidates() {
+        const candidates = [];
+        const localDesc = this.peerConnection.localDescription;
+        
+        if (localDesc && localDesc.sdp) {
+            const lines = localDesc.sdp.split('\n');
+            let currentMid = null;
+            let currentMLineIndex = null;
+            
+            for (const line of lines) {
+                if (line.startsWith('m=')) {
+                    currentMLineIndex = lines.indexOf(line);
+                } else if (line.startsWith('a=mid:')) {
+                    currentMid = line.split(':')[1].trim();
+                } else if (line.startsWith('a=candidate:')) {
+                    const candidate = line.substring('a=candidate:'.length);
+                    candidates.push({
+                        candidate,
+                        sdpMid: currentMid,
+                        sdpMLineIndex: currentMLineIndex
+                    });
+                }
+            }
+        }
+        
+        // Also include any pending candidates
+        candidates.push(...this.pendingIceCandidates);
+        this.pendingIceCandidates = [];
+        
+        return candidates;
+    }
+
+    /**
+     * Transition to a new connection state
+     * @param {string} newState - New state
+     */
+    transitionState(newState) {
+        const validTransitions = {
+            [ConnectionState.NEW]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
+            [ConnectionState.CONNECTING]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
+            [ConnectionState.CONNECTED]: [ConnectionState.TRANSFERRING, ConnectionState.FAILED, ConnectionState.CLOSED],
+            [ConnectionState.TRANSFERRING]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
+            [ConnectionState.FAILED]: [ConnectionState.CLOSED],
+            [ConnectionState.CLOSED]: []
+        };
+        
+        const allowedTransitions = validTransitions[this.state] || [];
+        if (allowedTransitions.includes(newState)) {
+            const oldState = this.state;
+            this.state = newState;
+            console.log(`State transition: ${oldState} -> ${newState}`);
+            this.emit('stateChange', newState, oldState);
+        } else {
+            console.warn(`Invalid state transition: ${this.state} -> ${newState}`);
+        }
+    }
+
+    /**
+     * Start the idle timer
+     * Timer only counts when in CONNECTED state (ADR-0010)
+     */
+    startIdleTimer() {
+        this.clearIdleTimer();
+        this.idleTimer = setTimeout(() => {
+            if (this.state === ConnectionState.CONNECTED) {
+                console.log('Idle timeout reached, closing connection');
+                this.transitionState(ConnectionState.CLOSED);
+                this.emit('idleTimeout');
+            }
+        }, this.idleTimeout);
+    }
+
+    /**
+     * Reset the idle timer
+     */
+    resetIdleTimer() {
+        if (this.state === ConnectionState.CONNECTED) {
+            this.startIdleTimer();
+        }
+    }
+
+    /**
+     * Clear the idle timer
+     */
+    clearIdleTimer() {
+        if (this.idleTimer) {
+            clearTimeout(this.idleTimer);
+            this.idleTimer = null;
+        }
+    }
+
+    /**
+     * Close the connection
+     */
+    close() {
+        this.clearIdleTimer();
+        this.transitionState(ConnectionState.CLOSED);
+        
+        if (this.controlChannel) {
+            try {
+                this.controlChannel.close();
+            } catch (e) {
+                // Already closed
+            }
+            this.controlChannel = null;
+        }
+        
+        if (this.dataChannel) {
+            try {
+                this.dataChannel.close();
+            } catch (e) {
+                // Already closed
+            }
+            this.dataChannel = null;
+        }
+        
+        if (this.peerConnection) {
+            try {
+                this.peerConnection.close();
+            } catch (e) {
+                // Already closed
+            }
+            this.peerConnection = null;
+        }
+        
+        this.connectionId = null;
+        this.secret = null;
+        this.emit('closed');
+    }
+
+    /**
+     * Check if connection is active
+     * @returns {boolean}
+     */
+    isConnected() {
+        return this.state === ConnectionState.CONNECTED || 
+               this.state === ConnectionState.TRANSFERRING;
+    }
+
+    /**
+     * Check if connection is in progress
+     * @returns {boolean}
+     */
+    isConnecting() {
+        return this.state === ConnectionState.NEW || 
+               this.state === ConnectionState.CONNECTING;
+    }
+
+    /**
+     * Get current connection info
+     * @returns {Object}
+     */
+    getConnectionInfo() {
+        return {
+            connId: this.connectionId,
+            secret: this.secret,
+            state: this.state
+        };
+    }
+}
+
+// Singleton instance
+export const webrtcManager = new WebRTCManager();

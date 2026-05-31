@@ -1,0 +1,23 @@
+{
+  "name": "local-file-share",
+  "version": "1.0.0",
+  "description": "Peer-to-peer file sharing via QR code connection",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pako": "^2.1.0",
+    "uuid": "^9.0.0",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "keywords": ["webrtc", "file-sharing", "qr-code", "p2p"],
+  "author": "",
+  "license": "MIT"
+}

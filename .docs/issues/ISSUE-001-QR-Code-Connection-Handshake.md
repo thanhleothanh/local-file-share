@@ -9,21 +9,21 @@ Implement the complete QR code-based WebRTC connection handshake flow. This incl
 This is the foundational vertical slice that enables all other functionality.
 
 ## Acceptance criteria
-- [ ] User can click "Create Connection" to generate first QR code (OFFER)
-- [ ] OFFER QR code contains compressed WebRTC offer, ICE candidates, connection ID, and secret
-- [ ] User can click "Scan QR Code" to open camera scanner
-- [ ] Scanner successfully reads OFFER QR code and extracts signaling data
-- [ ] After scanning OFFER, user is prompted to generate ANSWER QR code
-- [ ] ANSWER QR code contains compressed WebRTC answer, ICE candidates, connection ID, and secret
-- [ ] Initiator can scan ANSWER QR code to complete connection
-- [ ] Connection validates secret from both QR codes matches
-- [ ] WebRTC peer connection is established with two data channels (control + data)
-- [ ] Connection state transitions to CONNECTED
-- [ ] Connection closes after 5 minutes of inactivity (idle timeout)
-- [ ] Only one active connection allowed (reject new attempts if connection exists)
-- [ ] Connection state is visible in UI (connecting, connected, failed)
-- [ ] Invalid QR codes are rejected with clear error message
-- [ ] QR compression uses gzip + base64 as specified in ADR-0012
+- [x] User can click "Create Connection" to generate first QR code (OFFER)
+- [x] OFFER QR code contains compressed WebRTC offer, ICE candidates, connection ID, and secret
+- [x] User can click "Scan QR Code" to open camera scanner
+- [x] Scanner successfully reads OFFER QR code and extracts signaling data
+- [x] After scanning OFFER, user is prompted to generate ANSWER QR code
+- [x] ANSWER QR code contains compressed WebRTC answer, ICE candidates, connection ID, and secret
+- [x] Initiator can scan ANSWER QR code to complete connection
+- [x] Connection validates secret from both QR codes matches
+- [x] WebRTC peer connection is established with two data channels (control + data)
+- [x] Connection state transitions to CONNECTED
+- [x] Connection closes after 5 minutes of inactivity (idle timeout)
+- [x] Only one active connection allowed (reject new attempts if connection exists)
+- [x] Connection state is visible in UI (connecting, connected, failed)
+- [x] Invalid QR codes are rejected with clear error message
+- [x] QR compression uses gzip + base64 as specified in ADR-0012
 
 ## Blocked by
 None - can start immediately
