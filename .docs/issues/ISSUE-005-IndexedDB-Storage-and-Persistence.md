@@ -7,23 +7,23 @@ PRD-004: Storage and State Persistence
 Implement IndexedDB-based storage for file chunks, metadata, connection state, and queue persistence. This enables file transfers to survive page reloads.
 
 ## Acceptance criteria
-- [ ] IndexedDB database opened with proper schema versioning
-- [ ] Four object stores created: connections, files, chunks, queue
-- [ ] Connections store: key=connectionId, value={connId, secret, state, createdAt, lastActivityAt, peerInfo?}
-- [ ] Files store: key=composite(connectionId+fileId), value={connId, fileId, name, size, mime, state, createdAt, completedAt?, direction}
-- [ ] Chunks store: key=composite(connectionId+fileId+index), value={connId, fileId, index, data(ArrayBuffer), isLast}
-- [ ] Queue store: key=composite(connectionId+fileId), value={connId, fileId, order}
-- [ ] File chunks are stored as they arrive (batch processing for memory efficiency)
-- [ ] File chunks can be retrieved by connectionId, fileId, and index
-- [ ] All chunks for a file can be retrieved and reassembled
-- [ ] Connection state persists across page reloads
-- [ ] File transfer state persists across page reloads
-- [ ] Queued files persist across page reloads
-- [ ] Downloaded files are cleaned up from storage
-- [ ] All connection data cleaned up on connection close
-- [ ] Storage usage can be queried via navigator.storage.estimate()
-- [ ] All IndexedDB operations use promises for async handling
-- [ ] Any IndexedDB error triggers fail-fast (close connection)
+- [x] IndexedDB database opened with proper schema versioning
+- [x] Four object stores created: connections, files, chunks, queue
+- [x] Connections store: key=connectionId, value={connId, secret, state, createdAt, lastActivityAt, peerInfo?}
+- [x] Files store: key=composite(connectionId+fileId), value={connId, fileId, name, size, mime, state, createdAt, completedAt?, direction}
+- [x] Chunks store: key=composite(connectionId+fileId+index), value={connId, fileId, index, data(ArrayBuffer), isLast}
+- [x] Queue store: key=composite(connectionId+fileId), value={connId, fileId, order}
+- [x] File chunks are stored as they arrive (batch processing for memory efficiency)
+- [x] File chunks can be retrieved by connectionId, fileId, and index
+- [x] All chunks for a file can be retrieved and reassembled
+- [ ] Connection state persists across page reloads (storage module created but not integrated with connection manager)
+- [ ] File transfer state persists across page reloads (storage module created but not integrated with file manager)
+- [ ] Queued files persist across page reloads (storage module created but not integrated with queue manager)
+- [x] Downloaded files are cleaned up from storage
+- [x] All connection data cleaned up on connection close
+- [x] Storage usage can be queried via navigator.storage.estimate()
+- [x] All IndexedDB operations use promises for async handling
+- [ ] Any IndexedDB error triggers fail-fast (close connection) (error handling not yet integrated)
 
 ## Blocked by
 - ISSUE-001 (QR Code Connection Handshake - provides connection context)
