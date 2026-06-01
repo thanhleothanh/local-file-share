@@ -17,7 +17,7 @@ for ((i=1; i<=100; i++)); do
     # Check if it crashed
     if [ $EXIT_CODE -ne 0 ]; then
         echo "❌ Error: vibe exited with code $EXIT_CODE. Aborting suspend for safety."
-        exit $EXIT_CODE
+        break;
     fi
 
     # Check if finish token is in the latest git commit
