@@ -140,3 +140,57 @@ Object.defineProperty(navigator, 'storage', {
     },
     writable: true,
 });
+
+// Mock TextEncoder and TextDecoder (Node.js util module)
+// In Node.js, TextEncoder/TextDecoder are available in the util module
+// For ES modules, we need to use Buffer directly
+if (!global.TextEncoder) {
+    global.TextEncoder = class TextEncoder {
+        encode(str) {
+            return new Uint8Array(Buffer.from(str, 'utf8'));
+        }
+    };
+}
+if (!global.TextDecoder) {
+    global.TextDecoder = class TextDecoder {
+        decode(buffer) {
+            if (buffer instanceof Uint8Array) {
+                return Buffer.from(buffer).toString('utf8');
+            }
+            return Buffer.from(buffer).toString('utf8');
+        }
+    };
+}
+
+// Mock btoa and atob
+if (!global.btoa) {
+    global.btoa = (str) => Buffer.from(str, 'binary').toString('base64');
+}
+if (!global.atob) {
+    global.atob = (b64) => Buffer.from(b64, 'base64').toString('binary');
+}
+
+// Mock structuredClone for fake-indexeddb
+if (!global.structuredClone) {
+    // Simple polyfill for structuredClone
+    global.structuredClone = (obj) => {
+        // For simple objects, use JSON serialize/deserialize
+        if (obj === null || obj === undefined) {
+            return obj;
+        }
+        if (typeof obj !== 'object') {
+            return obj;
+        }
+        if (obj instanceof ArrayBuffer) {
+            const copy = new ArrayBuffer(obj.byteLength);
+            new Uint8Array(copy).set(new Uint8Array(obj));
+            return copy;
+        }
+        try {
+            return JSON.parse(JSON.stringify(obj));
+        } catch (e) {
+            // For complex objects that can't be serialized, return as-is
+            return obj;
+        }
+    };
+}
