@@ -28,15 +28,34 @@ Adopt a **7-state file state machine**:
 - PENDING → CANCELLED: Sender cancels
 - QUEUED → TRANSFERRING: Current TRANSFERRING file completes
 - QUEUED → CANCELLED: Sender cancels
-- TRANSFERRING → COMPLETED: All chunks received
-- TRANSFERRING → FAILED: Transfer error (fail-fast)
+- TRANSFERRING → COMPLETED: All chunks received (see ADR-0025 for the FILE_RECEIVED ack gate)
+- TRANSFERRING → FAILED: Transfer error (fail-fast) or NACK rounds exhausted (see ADR-0025)
+
+**Timestamps (added in branch `feature/fix-file-transfer`):**
+Each `FileTransfer` carries three timestamps:
+
+- `createdAt` — set on construction.
+- `completedAt` — stamped on the `→ COMPLETED` transition only.
+- `terminatedAt` — stamped on the `→ FAILED`, `→ REJECTED`, `→ CANCELLED` transitions.
+
+`getLastEventTime()` returns `completedAt ∥ terminatedAt ∥ createdAt`, which the Files tab uses to sort the All / Done chips chronologically (most recent first). Without `terminatedAt`, a file that just `FAILED` would sort by `createdAt` and disappear under piles of older entries.
+
+**State group (added in branch `feature/fix-file-transfer`):**
+`getStateGroup()` partitions the 7 states into two UI groups for the Files tab filter chips (see ADR-0027):
+
+| Group  | States                                              |
+|--------|-----------------------------------------------------|
+| active | `PENDING`, `QUEUED`, `TRANSFERRING`                 |
+| done   | `COMPLETED`, `FAILED`, `REJECTED`, `CANCELLED`      |
+
+Unknown states default to `done` (defensive — never silently appear under "active" where a stuck row would be invisible to the user).
 
 **Queue Logic:**
 - On FILE_ACCEPT: If any file TRANSFERRING → QUEUED, else → TRANSFERRING
 - On transfer complete: QUEUED file → TRANSFERRING (if queue not empty)
 
 **Cleanup:**
-- COMPLETED: Delete from IndexedDB on download button click
+- COMPLETED: chunk data is held in the assembled `ArrayBuffer` only, and the browser's save dialog is triggered immediately on transition (see ADR-0027). No `Download` button is shown because the data is not re-fetchable.
 - All others: Delete from IndexedDB on connection close
 
 ## Consequences

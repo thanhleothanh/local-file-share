@@ -31,16 +31,18 @@ export const ValidFileTransitions = {
  * File class representing a file transfer
  */
 export class FileTransfer {
-    constructor({ connId, fileId, name, size, mime, direction = 'send' }) {
+    constructor({ connId, fileId, name, size, mime, direction = 'send', fileObject = null }) {
         this.connId = connId;
         this.fileId = fileId;
         this.name = name;
         this.size = size;
         this.mime = mime;
         this.direction = direction; // 'send' or 'receive'
+        this.fileObject = fileObject; // Browser File/Blob on send side, null on receive side
         this.state = FileState.PENDING;
         this.createdAt = Date.now();
         this.completedAt = null;
+        this.terminatedAt = null;
         this.bytesTransferred = 0;
         this.chunksReceived = 0;
         this.totalChunks = 0;
@@ -90,10 +92,47 @@ export class FileTransfer {
             this.state = newState;
             if (newState === FileState.COMPLETED) {
                 this.completedAt = Date.now();
+            } else if (newState === FileState.FAILED
+                || newState === FileState.REJECTED
+                || newState === FileState.CANCELLED) {
+                this.terminatedAt = Date.now();
             }
             return true;
         }
         return false;
+    }
+
+    /**
+     * Get the timestamp of the most recent state-changing event on this file.
+     * Used to sort the All chip chronologically: a COMPLETED file appears by
+     * its completion time, a FAILED file by its termination time, an active
+     * file by its creation time.
+     * @returns {number}
+     */
+    getLastEventTime() {
+        return this.completedAt || this.terminatedAt || this.createdAt;
+    }
+
+    /**
+     * Which filter group this file belongs to in the UI:
+     *  - 'active': PENDING, QUEUED, or TRANSFERRING — anything needing
+     *    attention or in flight.
+     *  - 'done': COMPLETED, FAILED, REJECTED, CANCELLED — terminal states.
+     * @returns {'active'|'done'}
+     */
+    getStateGroup() {
+        switch (this.state) {
+            case FileState.PENDING:
+            case FileState.QUEUED:
+            case FileState.TRANSFERRING:
+                return 'active';
+            case FileState.COMPLETED:
+            case FileState.FAILED:
+            case FileState.REJECTED:
+            case FileState.CANCELLED:
+            default:
+                return 'done';
+        }
     }
 
     /**
@@ -228,13 +267,19 @@ export class FileQueueManager {
             // Already transferring
             return this.currentFile;
         }
-        
-        if (this.queue.length > 0) {
-            this.currentFile = this.queue.shift();
-            this.currentFile.transitionState(FileState.TRANSFERRING);
-            return this.currentFile;
+
+        // Skip files that are already in a terminal state (e.g., a file that
+        // was added to the queue while already complete). Without this guard
+        // we'd re-send a completed file and block the real next file.
+        while (this.queue.length > 0) {
+            const candidate = this.queue.shift();
+            if (!candidate.isTerminal()) {
+                this.currentFile = candidate;
+                this.currentFile.transitionState(FileState.TRANSFERRING);
+                return this.currentFile;
+            }
         }
-        
+
         return null;
     }
 

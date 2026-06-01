@@ -34,6 +34,8 @@ export const MessageType = {
     FILE_REJECT: 'FILE_REJECT',
     FILE_CHUNK: 'FILE_CHUNK',
     TRANSFER_DONE: 'TRANSFER_DONE',
+    FILE_RECEIVED: 'FILE_RECEIVED',
+    CHUNK_REQUEST_NACK: 'CHUNK_REQUEST_NACK',
     CLOSE: 'CLOSE',
     CANCELLED: 'CANCELLED',
     PING: 'PING',
@@ -183,7 +185,7 @@ export class WebRTCManager {
             connId: this.connectionId
         };
         
-        // Save connection to storage (ISSUE-005)
+        // Save connection to storage
         try {
             await storageManager.saveConnection({
                 connId: this.connectionId,
@@ -260,7 +262,7 @@ export class WebRTCManager {
             connId: this.connectionId
         };
         
-        // Save connection to storage (ISSUE-005)
+        // Save connection to storage
         try {
             await storageManager.saveConnection({
                 connId: this.connectionId,
@@ -389,13 +391,17 @@ export class WebRTCManager {
         this.dataChannelOpen = false;
         if (isOfferer) {
             this.controlChannel = this.peerConnection.createDataChannel('control', {
-                ordered: true,
-                maxRetransmits: 0
+                ordered: true
             });
 
             this.dataChannel = this.peerConnection.createDataChannel('data', {
                 ordered: true,
-                maxRetransmits: 0
+                // Wake the sender up when the SCTP send buffer drops below
+                // this threshold. Without it, the default of 0 means
+                // bufferedamountlow only fires when the buffer is fully
+                // drained, which starves throughput. 1 MiB keeps a small
+                // pipeline going while preventing overflow on slow links.
+                bufferedAmountLowThreshold: 1024 * 1024
             });
 
             this.setupChannelHandlers(this.controlChannel, 'control');
@@ -529,16 +535,60 @@ export class WebRTCManager {
     }
 
     /**
-     * Send a data message (file chunk)
+     * Send a data message (file chunk). Applies backpressure: if the SCTP
+     * send buffer is above bufferedAmountLowThreshold, returns a Promise
+     * that resolves when the buffer drains to the threshold. The sender
+     * must await this to avoid overflowing the data channel (which closes
+     * it on overflow — no error, just a silent close).
      * @param {ArrayBuffer} data - Binary data
+     * @returns {Promise<void>} Resolves once the data is queued (and the
+     *   buffer has drained past the threshold if it was over).
      */
     sendDataMessage(data) {
-        if (this.dataChannel && this.dataChannel.readyState === 'open') {
-            this.dataChannel.send(data);
-            this.resetIdleTimer();
-        } else {
+        if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
             console.warn('Data channel not open, cannot send message');
+            return Promise.resolve();
         }
+        this.dataChannel.send(data);
+        this.resetIdleTimer();
+        return this.waitForDataChannelDrain();
+    }
+
+    /**
+     * Wait until the data channel's bufferedAmount drops to or below
+     * bufferedAmountLowThreshold. No-op if the channel is already drained,
+     * missing, or closed. Resolves immediately on the next `bufferedamountlow`
+     * event. Includes a safety timeout so a stalled channel can't hang the
+     * sender forever.
+     * @returns {Promise<void>}
+     */
+    waitForDataChannelDrain() {
+        const channel = this.dataChannel;
+        if (!channel || channel.readyState !== 'open') {
+            return Promise.resolve();
+        }
+        const threshold = channel.bufferedAmountLowThreshold || 0;
+        if (channel.bufferedAmount <= threshold) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            let settled = false;
+            const onLow = () => {
+                if (settled) return;
+                settled = true;
+                channel.removeEventListener('bufferedamountlow', onLow);
+                clearTimeout(safety);
+                resolve();
+            };
+            const safety = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                channel.removeEventListener('bufferedamountlow', onLow);
+                console.warn('Data channel drain timeout — proceeding with send');
+                resolve();
+            }, 60_000);
+            channel.addEventListener('bufferedamountlow', onLow);
+        });
     }
 
     /**
@@ -613,7 +663,7 @@ export class WebRTCManager {
             this.state = newState;
             console.log(`State transition: ${oldState} -> ${newState}`);
             
-            // Persist connection state (ISSUE-005)
+            // Persist connection state
             try {
                 if (this.connectionId) {
                     await storageManager.updateConnectionState(this.connectionId, newState);
@@ -697,7 +747,7 @@ export class WebRTCManager {
             this.peerConnection = null;
         }
         
-        // Clean up connection data from storage (ISSUE-005)
+        // Clean up connection data from storage
         try {
             if (this.connectionId) {
                 await storageManager.deleteConnection(this.connectionId);

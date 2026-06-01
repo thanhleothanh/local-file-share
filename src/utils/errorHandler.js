@@ -1,6 +1,6 @@
 /**
  * Error Handler Module
- * Centralized error handling and recovery (ISSUE-012, ADR-0006)
+ * Centralized error handling and recovery (ADR-0006)
  */
 
 import { webrtcManager } from '@modules/webrtcManager.js';

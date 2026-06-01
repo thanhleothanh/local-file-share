@@ -1,6 +1,6 @@
 /**
  * IndexedDB Storage Module
- * Implements persistent storage for connections, files, chunks, and queue (ISSUE-005)
+ * Implements persistent storage for connections, files, chunks, and queue
  * Uses IndexedDB API (ADR-0021)
  */
 

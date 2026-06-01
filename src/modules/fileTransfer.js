@@ -1,6 +1,6 @@
 /**
  * File Transfer Protocol Module
- * Implements file offer/accept protocol over control channel (ISSUE-002)
+ * Implements file offer/accept protocol over control channel
  * Handles message serialization and file transfer coordination
  */
 
@@ -9,6 +9,7 @@ import { webrtcManager, ConnectionState, MessageType } from '@modules/webrtcMana
 import { FileTransfer, FileState, FileQueueManager } from '@utils/fileState.js';
 import { errorHandler } from '@utils/errorHandler.js';
 import { storageManager } from '@utils/storage.js';
+import { chunkHandler } from '@utils/chunkHandler.js';
 
 export { FileState };
 
@@ -24,6 +25,8 @@ export class FileTransferManager {
         this.queueManager = new FileQueueManager();
         this.files = new Map(); // fileId -> FileTransfer
         this.pendingOffers = new Map(); // fileId -> FileTransfer (for receiver side)
+        this.sentChunkCache = new Map(); // fileId -> Map<index, ArrayBuffer> for NACK retransmit
+        this.ackTimers = new Map(); // fileId -> timeout handle for waiting on FILE_RECEIVED
         this.eventListeners = {};
         this.initialized = false;
     }
@@ -90,6 +93,12 @@ export class FileTransferManager {
                 break;
             case MessageType.TRANSFER_DONE:
                 this.handleTransferDone(message);
+                break;
+            case MessageType.FILE_RECEIVED:
+                await this.handleFileReceived(message);
+                break;
+            case MessageType.CHUNK_REQUEST_NACK:
+                await this.handleChunkRequestNack(message);
                 break;
             case MessageType.CANCELLED:
                 this.handleFileCancelled(message);
@@ -169,7 +178,7 @@ export class FileTransferManager {
         this.pendingOffers.set(file.fileId, file);
         this.files.set(file.fileId, file);
 
-        // Persist received file to storage (ISSUE-005)
+        // Persist received file to storage
         try {
             await storageManager.saveFile({
                 connId: file.connId,
@@ -212,17 +221,26 @@ export class FileTransferManager {
 
         // Update file state
         if (file.direction === 'send') {
-            // Sender: transition based on queue state
-            if (this.queueManager.hasCurrentFile()) {
-                file.transitionState(FileState.QUEUED);
-            } else {
+            // Sender: transition based on queue state. A file is either the
+            // currentFile (being transferred) OR a queued file (waiting) —
+            // never both. Adding it to the queue when it becomes current
+            // would cause startNextFile to re-shift the just-completed file
+            // and re-send it, leaving the real next file stuck at QUEUED.
+            const becomesCurrent = !this.queueManager.hasCurrentFile();
+            if (becomesCurrent) {
                 file.transitionState(FileState.TRANSFERRING);
                 this.queueManager.currentFile = file;
+            } else {
+                file.transitionState(FileState.QUEUED);
+                this.queueManager.addFile(file);
             }
-            this.queueManager.addFile(file);
-            
-            // Persist state (ISSUE-005)
+
+            // Persist state
             await this.persistFileState(file);
+
+            if (becomesCurrent) {
+                this.startSendingChunks(file);
+            }
         }
 
         // Notify UI
@@ -253,23 +271,88 @@ export class FileTransferManager {
 
     /**
      * Handle TRANSFER_DONE message
+     *
+     * This is the *sender's* "I queued my last byte" signal. It is NOT a
+     * confirmation that the receiver has all the bytes — the control and data
+     * channels are independent and the control message can race ahead of late
+     * data chunks. With reliable data channels this should be rare, but the
+     * receiver's transition to COMPLETED happens in chunkHandler.assembleFile
+     * once the expected chunk count is reached.
+     *
+     * The sender transitions its own file to COMPLETED only after receiving
+     * FILE_RECEIVED from the receiver. If chunks are missing, the receiver
+     * will send CHUNK_REQUEST_NACK; we re-send the missing chunks from cache.
+     *
      * @param {Object} message - TRANSFER_DONE message
      */
     async handleTransferDone(message) {
         const file = this.files.get(message.fileId);
-        if (file) {
-            file.transitionState(FileState.COMPLETED);
-            await this.persistFileState(file);
-            this.queueManager.completeCurrentFile(file);
-            
-            // Start next file if queue is not empty
-            const nextFile = this.queueManager.startNextFile();
-            if (nextFile) {
-                this.emit('fileTransferStarted', nextFile);
-            }
-            
-            this.emit('fileTransferComplete', file);
+        if (!file) return;
+
+        // No-op on this side: we don't advance the queue or mark COMPLETED.
+        // Wait for FILE_RECEIVED (success) or NACK (retransmit).
+    }
+
+    /**
+     * Handle FILE_RECEIVED message — the receiver's explicit "I have all the
+     * bytes" acknowledgement. This is the only thing that should mark the
+     * sender's local file as COMPLETED.
+     * @param {Object} message - FILE_RECEIVED message
+     */
+    async handleFileReceived(message) {
+        const file = this.files.get(message.fileId);
+        if (!file) return;
+
+        this.clearAckTimer(message.fileId);
+        this.sentChunkCache.delete(message.fileId);
+
+        file.transitionState(FileState.COMPLETED);
+        await this.persistFileState(file);
+        this.queueManager.completeCurrentFile(file);
+
+        this.emit('fileTransferComplete', file);
+
+        // Advance the local send queue now that the receiver has confirmed.
+        const nextFile = this.queueManager.startNextFile();
+        if (nextFile) {
+            this.emit('fileTransferStarted', nextFile);
+            this.startSendingChunks(nextFile);
         }
+    }
+
+    /**
+     * Handle CHUNK_REQUEST_NACK — the receiver detected missing chunks. Re-send
+     * the requested indices from the in-memory cache.
+     * @param {Object} message - CHUNK_REQUEST_NACK message
+     */
+    async handleChunkRequestNack(message) {
+        const { fileId, missingIndices, connId } = message;
+        const cache = this.sentChunkCache.get(fileId);
+
+        if (!cache) {
+            console.warn('NACK for file with no cache (probably evicted):', fileId);
+            return;
+        }
+
+        const file = this.files.get(fileId);
+        if (!file) return;
+
+        console.log(`Re-sending ${missingIndices.length} chunks for file ${fileId}`);
+
+        for (const index of missingIndices) {
+            const chunk = cache.get(index);
+            if (!chunk) {
+                console.warn('Cache miss for chunk index', index, 'file', fileId);
+                continue;
+            }
+            const header = chunkHandler.createChunkHeader(fileId, index, false);
+            const messageBuffer = chunkHandler.combineBuffer(header, chunk);
+            await webrtcManager.sendDataMessage(messageBuffer);
+        }
+
+        // Reset the ack timer; the receiver should respond with FILE_RECEIVED
+        // once the re-sent chunks arrive.
+        this.scheduleAckTimeout(fileId);
     }
 
     /**
@@ -338,7 +421,7 @@ export class FileTransferManager {
                 continue;
             }
 
-            // Check queue limits (ADR-0009, ISSUE-012)
+            // Check queue limits (ADR-0009)
             const canAdd = this.queueManager.checkCanAddFile(fileItem.size);
             if (!canAdd.canAdd) {
                 console.error('Queue limit exceeded:', canAdd.reason);
@@ -360,13 +443,14 @@ export class FileTransferManager {
                 name: fileItem.name,
                 size: fileItem.size,
                 mime: fileItem.type || this.getMimeType(fileItem.name),
-                direction: 'send'
+                direction: 'send',
+                fileObject: fileItem
             });
 
             // Store file
             this.files.set(fileId, file);
             
-            // Persist file to storage (ISSUE-005)
+            // Persist file to storage
             try {
                 await storageManager.saveFile({
                     connId: file.connId,
@@ -440,15 +524,20 @@ export class FileTransferManager {
         };
         
         webrtcManager.sendControlMessage(message);
-        
-        // Update state
+
+        // Update state. The receiver's progress is tracked by the file's own
+        // state (TRANSFERRING -> COMPLETED in assembleFile), NOT by the queue
+        // manager. The queue manager tracks the SEND queue only — sharing the
+        // `currentFile` slot with receive-side tracking would leak terminal
+        // receive state across direction switches and leave the next send
+        // stuck at QUEUED (startNextFile short-circuits on a non-null
+        // currentFile).
         file.transitionState(FileState.TRANSFERRING);
-        this.queueManager.currentFile = file;
         this.pendingOffers.delete(fileId);
-        
-        // Persist state (ISSUE-005)
+
+        // Persist state
         await this.persistFileState(file);
-        
+
         this.emit('fileAccepted', file);
     }
 
@@ -535,7 +624,37 @@ export class FileTransferManager {
     }
 
     /**
+     * Start sending chunks for a file that has just become the current transfer.
+     * Called from handleFileAccept (first file) and handleTransferDone (next queued).
+     * @param {FileTransfer} file - File whose chunks to send
+     */
+    startSendingChunks(file) {
+        if (!file.fileObject) {
+            console.error('Cannot send chunks: no File object for', file.fileId, '(likely a received file)');
+            file.transitionState(FileState.FAILED);
+            this.emit('fileError', { file, error: 'NO_FILE_OBJECT' });
+            return;
+        }
+        if (typeof chunkHandler?.sendFile !== 'function') {
+            console.error('chunkHandler.sendFile is not available');
+            file.transitionState(FileState.FAILED);
+            this.emit('fileError', { file, error: 'CHUNK_HANDLER_UNAVAILABLE' });
+            return;
+        }
+        chunkHandler.sendFile(file.fileObject, file.fileId).catch((error) => {
+            console.error('Chunk send failed for', file.fileId, error);
+            errorHandler.handleFileError(error, { operation: 'sendFile', fileId: file.fileId });
+            file.transitionState(FileState.FAILED);
+            this.emit('fileError', { file, error: error.message });
+        });
+    }
+
+    /**
      * Send TRANSFER_DONE message
+     *
+     * The sender queues this after all data chunks have been queued. It does
+     * NOT mark the file as COMPLETED here — the file only transitions to
+     * COMPLETED on this side when FILE_RECEIVED arrives from the receiver.
      * @param {string} fileId - File ID that completed
      */
     async sendTransferDone(fileId) {
@@ -550,15 +669,75 @@ export class FileTransferManager {
             connId: file.connId,
             fileId: file.fileId
         };
-        
+
         webrtcManager.sendControlMessage(message);
-        
-        // Update state
-        file.transitionState(FileState.COMPLETED);
-        await this.persistFileState(file);
-        this.queueManager.completeCurrentFile(file);
-        
-        this.emit('fileTransferComplete', file);
+
+        // Start waiting for the receiver's FILE_RECEIVED acknowledgement. If
+        // the receiver detects missing chunks it will issue a NACK; we
+        // re-send from the cache. If no response arrives in time, the file
+        // is marked FAILED.
+        this.scheduleAckTimeout(fileId);
+    }
+
+    /**
+     * Cache a chunk for possible retransmit on NACK.
+     * @param {string} fileId
+     * @param {number} index
+     * @param {ArrayBuffer} data - chunk payload (header-stripped)
+     */
+    cacheChunk(fileId, index, data) {
+        if (!this.sentChunkCache.has(fileId)) {
+            this.sentChunkCache.set(fileId, new Map());
+        }
+        this.sentChunkCache.get(fileId).set(index, data);
+    }
+
+    /**
+     * Drop the in-memory chunk cache for a file.
+     * @param {string} fileId
+     */
+    clearChunkCache(fileId) {
+        this.sentChunkCache.delete(fileId);
+    }
+
+    /**
+     * Schedule (or reset) the timeout that marks a file FAILED if the receiver
+     * never acknowledges it.
+     * @param {string} fileId
+     */
+    scheduleAckTimeout(fileId) {
+        this.clearAckTimer(fileId);
+        const handle = setTimeout(() => {
+            const file = this.files.get(fileId);
+            if (!file) return;
+            if (file.state === FileState.COMPLETED || file.state === FileState.FAILED) {
+                return;
+            }
+            console.error('Timed out waiting for FILE_RECEIVED:', fileId);
+            this.sentChunkCache.delete(fileId);
+            file.transitionState(FileState.FAILED);
+            this.persistFileState(file).catch(() => {});
+            this.emit('fileTransferFailed', file);
+            this.queueManager.failCurrentFile(file);
+            const nextFile = this.queueManager.startNextFile();
+            if (nextFile) {
+                this.emit('fileTransferStarted', nextFile);
+                this.startSendingChunks(nextFile);
+            }
+        }, 30_000);
+        this.ackTimers.set(fileId, handle);
+    }
+
+    /**
+     * Clear a pending ack timeout for a file.
+     * @param {string} fileId
+     */
+    clearAckTimer(fileId) {
+        const handle = this.ackTimers.get(fileId);
+        if (handle) {
+            clearTimeout(handle);
+            this.ackTimers.delete(fileId);
+        }
     }
 
     /**
@@ -602,7 +781,13 @@ export class FileTransferManager {
     async clear() {
         const currentConn = webrtcManager.getConnectionInfo();
         const connId = currentConn.connId;
-        
+
+        for (const handle of this.ackTimers.values()) {
+            clearTimeout(handle);
+        }
+        this.ackTimers.clear();
+        this.sentChunkCache.clear();
+
         // Delete all files for this connection from storage
         if (connId) {
             try {
@@ -614,7 +799,7 @@ export class FileTransferManager {
                 console.error('Failed to clean up file storage:', error);
             }
         }
-        
+
         this.files.clear();
         this.pendingOffers.clear();
         this.queueManager.clear();

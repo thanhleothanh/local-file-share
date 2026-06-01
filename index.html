@@ -339,9 +339,283 @@
         .section {
             margin-bottom: 1.5rem;
         }
-        
+
         .section:last-child {
             margin-bottom: 0;
+        }
+
+        /* ------------------------------------------------------------------
+           Files panel (mobile-first, single list, filter chips)
+           ------------------------------------------------------------------ */
+        .files-panel {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            padding-bottom: 0.5rem;
+        }
+
+        .files-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .files-header h2 {
+            margin: 0;
+        }
+
+        .filter-chips {
+            display: flex;
+            gap: 0.4rem;
+            padding: 0.25rem 0 0.75rem 0;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid var(--bg-secondary);
+            position: sticky;
+            top: 0;
+            background: var(--bg-card);
+            z-index: 2;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.4rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid var(--bg-secondary);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            min-height: 36px;
+        }
+
+        .chip:hover:not(.active) {
+            color: var(--text-primary);
+        }
+
+        .chip.active {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+
+        .chip-count {
+            display: inline-block;
+            padding: 0 0.4rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            background: rgba(0, 0, 0, 0.2);
+            min-width: 1.2rem;
+            text-align: center;
+        }
+
+        .chip.active .chip-count {
+            background: rgba(255, 255, 255, 0.3);
+            color: #000;
+        }
+
+        .file-list {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            padding: 0.25rem 0 0.5rem 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .file-row {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            padding: 0.7rem 0.85rem;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            border: 1px solid transparent;
+            transition: border-color 0.15s;
+        }
+
+        .file-row.is-active-transfer {
+            border-color: var(--accent);
+        }
+
+        .file-row-top {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            min-width: 0;
+        }
+
+        .file-arrow {
+            font-size: 1rem;
+            flex-shrink: 0;
+            width: 1.2rem;
+            text-align: center;
+        }
+
+        .file-arrow.send { color: var(--accent); }
+        .file-arrow.receive { color: var(--success); }
+
+        .file-name {
+            flex: 1;
+            font-weight: 500;
+            font-size: 0.95rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+        }
+
+        .file-size {
+            flex-shrink: 0;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .file-status {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            padding-left: 1.8rem;
+        }
+
+        .file-status .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+            flex-shrink: 0;
+        }
+
+        .file-status .dot.sending { background: var(--accent); animation: pulse 1.5s infinite; }
+        .file-status .dot.receiving { background: var(--success); animation: pulse 1.5s infinite; }
+        .file-status .dot.queued { background: var(--warning); }
+        .file-status .dot.pending { background: var(--warning); }
+        .file-status .dot.done { background: var(--success); }
+        .file-status .dot.failed { background: var(--error); }
+        .file-status .dot.terminal { background: var(--text-secondary); }
+
+        .file-progress {
+            padding-left: 1.8rem;
+        }
+
+        .file-progress-bar {
+            height: 6px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .file-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success), var(--accent));
+            border-radius: 3px;
+            transition: width 0.2s ease;
+        }
+
+        .file-progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            margin-top: 0.2rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+            padding-left: 1.8rem;
+        }
+
+        .file-actions .btn {
+            padding: 0.35rem 0.7rem;
+            font-size: 0.78rem;
+            min-height: 32px;
+        }
+
+        .file-list-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2.5rem 1rem;
+            color: var(--text-secondary);
+            text-align: center;
+            gap: 0.4rem;
+        }
+
+        .file-list-empty .empty-icon {
+            font-size: 2.2rem;
+            opacity: 0.5;
+        }
+
+        .file-list-empty .empty-hint {
+            font-size: 0.85rem;
+        }
+
+        /* Send files action button. Plain block element at the bottom of
+           the .files-panel content. The panel itself is a flex column
+           so the file-list grows to fill the available space and scrolls
+           internally; the button sits right under it. Never sticky to
+           the viewport — the previous `position: sticky; bottom: ...`
+           resolved against the html scroll container and made the button
+           float over the Connection panel on mobile. */
+        .btn-fab {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: calc(100% - 1rem);
+            margin: 0.75rem 0.5rem 0.25rem 0.5rem;
+            padding: 0.85rem 1.2rem;
+            background: var(--accent);
+            color: #000;
+            border: none;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.3);
+            transition: all 0.15s;
+            min-height: 48px;
+        }
+
+        .btn-fab:hover:not(:disabled) {
+            background: var(--accent-alt);
+            transform: translateY(-1px);
+        }
+
+        .btn-fab:disabled {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .btn-fab-icon {
+            font-size: 1.1rem;
+            line-height: 1;
+        }
+
+        /* On wide screens the two panels sit side by side. Constrain the
+           Files panel to a sensible height so the file list can scroll
+           inside the panel and the FAB always sits at the panel's bottom. */
+        @media (min-width: 769px) {
+            .files-panel {
+                max-height: calc(100vh - 4rem);
+            }
         }
     </style>
 </head>
@@ -426,55 +700,34 @@
             </div>
             
             <!-- Files Panel -->
-            <div class="panel">
-                <h2>Files</h2>
+            <div class="panel files-panel">
+                <div class="files-header">
+                    <h2>Files</h2>
+                </div>
+
                 <div id="filesAlert" class="alert" style="display: none;"></div>
-                
-                <div class="section">
-                    <h3>Send Files</h3>
-                    <input type="file" id="fileInput" multiple style="display: none;" accept="*" />
-                    <div class="qr-actions">
-                        <button class="btn btn-primary" id="selectFilesBtn" onclick="document.getElementById('fileInput').click()" disabled>
-                            Select Files to Send
-                        </button>
-                    </div>
-                    <div id="filePreview" style="display: none; margin-top: 1rem;">
-                        <h4>Preview Selected Files</h4>
-                        <div id="previewFileList" style="max-height: 150px; overflow-y: auto; margin-bottom: 0.5rem;"></div>
-                        <div class="qr-actions">
-                            <button class="btn btn-primary" id="confirmSendBtn" onclick="confirmSendFiles()" style="display: none;">
-                                Send Files
-                            </button>
-                            <button class="btn btn-danger" id="cancelPreviewBtn" onclick="cancelFilePreview()" style="display: none;">
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                    <div id="fileSendProgress" style="display: none; margin-top: 1rem;">
-                        <p><strong>Sending:</strong> <span id="sendingFileName"></span></p>
-                        <div class="custom-progress-container" style="margin-top: 0.5rem;">
-                            <div id="sendProgressBar" class="custom-progress-bar" style="width: 0%;">
-                                <span id="sendProgressText">0%</span>
-                            </div>
-                        </div>
-                    </div>
+
+                <div class="filter-chips" role="tablist" aria-label="File filters">
+                    <button class="chip active" data-filter="all" role="tab" aria-selected="true">
+                        All <span class="chip-count" data-count="all">0</span>
+                    </button>
+                    <button class="chip" data-filter="active" role="tab" aria-selected="false">
+                        Active <span class="chip-count" data-count="active">0</span>
+                    </button>
+                    <button class="chip" data-filter="done" role="tab" aria-selected="false">
+                        Done <span class="chip-count" data-count="done">0</span>
+                    </button>
                 </div>
-                
-                <div class="section">
-                    <h3>Incoming Files</h3>
-                    <div id="pendingOffers" style="display: none;">
-                        <p><strong>Incoming offers:</strong></p>
-                        <div id="pendingOffersList"></div>
-                    </div>
+
+                <div id="fileList" class="file-list" role="list">
+                    <!-- rows rendered by renderFileList() -->
                 </div>
-                
-                <div class="section">
-                    <h3>Transfer Queue</h3>
-                    <div id="queueStatus" style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);"></div>
-                    <div id="fileQueue" style="max-height: 200px; overflow-y: auto;"></div>
-                </div>
-                
-                <p style="color: var(--text-secondary); display: none;" id="noConnectionFilesMsg">Connection required for file transfer.</p>
+
+                <input type="file" id="fileInput" multiple style="display: none;" accept="*" />
+                <button class="btn-fab" id="sendFilesFab" type="button" aria-label="Send files" disabled>
+                    <span class="btn-fab-icon" aria-hidden="true">+</span>
+                    <span>Send files</span>
+                </button>
             </div>
         </div>
     </div>

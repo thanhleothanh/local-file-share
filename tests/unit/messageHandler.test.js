@@ -1,6 +1,6 @@
 /**
  * Message Handler Unit Tests
- * Tests for control message serialization/deserialization (ISSUE-002, ISSUE-015)
+ * Tests for control message serialization/deserialization
  */
 
 // Import jest functions

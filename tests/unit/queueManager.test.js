@@ -1,6 +1,6 @@
 /**
  * Queue Manager Unit Tests
- * Tests for FileQueueManager class in fileState.js (ISSUE-004, ISSUE-015)
+ * Tests for FileQueueManager class in fileState.js
  */
 
 import { FileQueueManager, FileState, FileTransfer } from '@utils/fileState.js';

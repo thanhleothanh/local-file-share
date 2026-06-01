@@ -1,6 +1,6 @@
 /**
  * QR Compression Unit Tests
- * Tests for qrCompression.js module (ADR-0012, ADR-0023, ISSUE-001, ISSUE-015)
+ * Tests for qrCompression.js module (ADR-0012, ADR-0023)
  */
 
 import {

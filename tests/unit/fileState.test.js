@@ -1,6 +1,6 @@
 /**
  * File State Machine Unit Tests
- * Tests for fileState.js module (ADR-0011, ISSUE-002)
+ * Tests for fileState.js module (ADR-0011)
  */
 
 import { FileState, FileTransfer } from '@utils/fileState.js';

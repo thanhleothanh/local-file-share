@@ -3,13 +3,17 @@
  * Handles binary chunk parsing and creation for data channel (ADR-0014, ADR-0015)
  */
 
-import { webrtcManager } from '@modules/webrtcManager.js';
+import { webrtcManager, MessageType } from '@modules/webrtcManager.js';
 import { fileTransferManager } from '@modules/fileTransfer.js';
+import { FileState } from '@utils/fileState.js';
 import { errorHandler } from '@utils/errorHandler.js';
 
 // Chunk size: 8KB (ADR-0015)
 const CHUNK_SIZE = 8192;
 const HEADER_SIZE = 41; // 36 (fileId) + 4 (index) + 1 (isLast)
+
+// Max retransmit rounds per file before declaring failure.
+const MAX_NACK_ROUNDS = 3;
 
 /**
  * Chunk Handler
@@ -18,6 +22,7 @@ const HEADER_SIZE = 41; // 36 (fileId) + 4 (index) + 1 (isLast)
 export class ChunkHandler {
     constructor() {
         this.receivedChunks = new Map(); // fileId -> Map<index, ArrayBuffer>
+        this.nackRounds = new Map(); // fileId -> count of NACK rounds issued
         this.eventListeners = {};
         this.initialized = false;
     }
@@ -81,11 +86,15 @@ export class ChunkHandler {
         }
 
         try {
-            // Parse header
+            // Parse header. `data` is an ArrayBuffer — it does not have
+            // indexed access, so we must go through a Uint8Array view to
+            // read individual bytes. `data[40]` returns undefined, not the
+            // byte value, which silently broke isLast detection.
+            const headerView = new Uint8Array(data);
             const fileId = new TextDecoder().decode(data.slice(0, 36));
             const indexBuffer = data.slice(36, 40);
             const index = new DataView(indexBuffer).getUint32(0, false); // big-endian
-            const isLast = data[40] === 1;
+            const isLast = headerView[40] === 1;
             const chunkData = data.slice(HEADER_SIZE);
 
             console.log(`Received chunk: fileId=${fileId.substring(0, 8)}... index=${index} isLast=${isLast} size=${chunkData.byteLength}`);
@@ -106,6 +115,7 @@ export class ChunkHandler {
      * @param {number} index - Chunk index
      * @param {ArrayBuffer} data - Chunk data
      * @param {boolean} isLast - Whether this is the last chunk
+     * @returns {Promise<void>} Resolves once assembly (if triggered) finishes.
      */
     storeChunk(fileId, index, data, isLast) {
         if (!this.receivedChunks.has(fileId)) {
@@ -113,21 +123,54 @@ export class ChunkHandler {
         }
 
         const fileChunks = this.receivedChunks.get(fileId);
+
+        // If we've already assembled this file, late-arriving chunks are
+        // expected in a small but nonzero number of cases: the receiver
+        // briefly NACKs when the isLast chunk arrives a hair ahead of
+        // earlier ones (SCTP tail reordering), the sender re-sends from
+        // cache, and the original missing chunks arrive in the meantime
+        // so assembly completes and FILE_RECEIVED goes out before the
+        // re-send reaches us. The data is correct (integrity check
+        // verified all indices 0..N-1 before the transition); these are
+        // just stragglers from the SCTP send buffer.
+        const file = fileTransferManager.getFile(fileId);
+        if (file && (file.state === FileState.COMPLETED || file.state === FileState.FAILED)) {
+            console.log('Late chunk for terminal-state file (ignored):', fileId, 'index', index, 'state', file.state);
+            return Promise.resolve();
+        }
+
         fileChunks.set(index, data);
 
         // Update file progress
-        const file = fileTransferManager.getFile(fileId);
         if (file) {
             file.updateProgress(data.byteLength);
             file.updateChunks(1);
             fileTransferManager.emit('fileProgress', file);
         }
 
-        // Check if this is the last chunk
-        if (isLast) {
-            // All chunks should be here, assemble the file
-            this.assembleFile(fileId);
+        const expectedChunks = file ? Math.ceil(file.size / CHUNK_SIZE) : 0;
+
+        // Happy path: all expected chunks have arrived. Assemble.
+        if (expectedChunks > 0 && fileChunks.size >= expectedChunks) {
+            return this.assembleFile(fileId);
         }
+
+        // The sender's isLast chunk is its "I'm done queueing" signal. With
+        // a reliable data channel we should always have all chunks by now,
+        // but if the count is short the sender's signal is our cue to ask
+        // for a retransmit of the missing indices rather than silently
+        // assemble a corrupt file.
+        if (isLast && file) {
+            const missingIndices = [];
+            for (let i = 0; i < expectedChunks; i++) {
+                if (!fileChunks.has(i)) missingIndices.push(i);
+            }
+            if (missingIndices.length > 0) {
+                return this.handleMissingChunks(fileId, file, missingIndices);
+            }
+        }
+
+        return Promise.resolve();
     }
 
     /**
@@ -154,26 +197,26 @@ export class ChunkHandler {
             return;
         }
 
-        // Sort chunks by index
-        const sortedChunks = Array.from(fileChunks.entries())
-            .sort((a, b) => a[0] - b[0]);
+        // Determine expected chunk count from the file size. This is the
+        // receiver's source of truth — NOT the isLast flag on a chunk.
+        const expectedChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-        // Check if we have all chunks
-        const expectedChunks = sortedChunks.length;
-        const firstIndex = sortedChunks[0][0];
-        const lastIndex = sortedChunks[expectedChunks - 1][0];
-        
-        if (lastIndex !== expectedChunks - 1 + firstIndex) {
-            console.error('Missing chunks for file:', fileId, 'Expected:', expectedChunks, 'indices:', firstIndex, '-', lastIndex);
-            errorHandler.handleFileError(
-                new Error(`Missing chunks for file: expected ${expectedChunks} chunks but received incomplete sequence`),
-                { fileId, receivedChunks: sortedChunks.length, firstIndex, lastIndex }
-            );
-            file.transitionState(FileState.FAILED);
-            fileTransferManager.emit('fileTransferFailed', file);
-            this.receivedChunks.delete(fileId);
+        // Defensive integrity check: if we got here via the chunk-count path
+        // the size should match, but make absolutely sure we don't assemble
+        // a corrupt file (e.g., a duplicate-index edge case that slipped
+        // through). NACK instead.
+        const missingIndices = [];
+        for (let i = 0; i < expectedChunks; i++) {
+            if (!fileChunks.has(i)) missingIndices.push(i);
+        }
+        if (missingIndices.length > 0) {
+            await this.handleMissingChunks(fileId, file, missingIndices);
             return;
         }
+
+        // Sort chunks by index (should be 0..expectedChunks-1, but be defensive).
+        const sortedChunks = Array.from(fileChunks.entries())
+            .sort((a, b) => a[0] - b[0]);
 
         // Calculate total size
         let totalSize = 0;
@@ -190,6 +233,16 @@ export class ChunkHandler {
             offset += chunk.byteLength;
         }
 
+        // Mark the file as COMPLETED on the receiver here, not when the sender's
+        // TRANSFER_DONE message arrives — the control message can race ahead of
+        // late data chunks, and the file is only truly "done" once assembled.
+        file.transitionState(FileState.COMPLETED);
+        await fileTransferManager.persistFileState(file);
+        fileTransferManager.emit('fileTransferComplete', file);
+
+        // Acknowledge receipt to the sender so its UI can also mark COMPLETED.
+        this.sendFileReceived(file);
+
         // Notify that file is complete
         this.emit('fileDataComplete', {
             file,
@@ -198,6 +251,59 @@ export class ChunkHandler {
 
         // Clean up
         this.receivedChunks.delete(fileId);
+        this.nackRounds.delete(fileId);
+    }
+
+    /**
+     * Handle a file with missing chunks by requesting retransmits or
+     * declaring failure if too many NACK rounds have been issued.
+     * @param {string} fileId
+     * @param {FileTransfer} file
+     * @param {Array<number>} missingIndices
+     */
+    async handleMissingChunks(fileId, file, missingIndices) {
+        const rounds = (this.nackRounds.get(fileId) || 0) + 1;
+        this.nackRounds.set(fileId, rounds);
+
+        if (rounds > MAX_NACK_ROUNDS) {
+            console.error('Giving up on file after', MAX_NACK_ROUNDS, 'NACK rounds:', fileId,
+                'missing', missingIndices.length, 'chunks');
+            errorHandler.handleFileError(
+                new Error(`Missing chunks after ${MAX_NACK_ROUNDS} retransmit attempts: ${missingIndices.length} chunks still missing`),
+                { fileId, fileName: file.name, missingCount: missingIndices.length, rounds }
+            );
+            file.transitionState(FileState.FAILED);
+            fileTransferManager.emit('fileTransferFailed', file);
+            this.receivedChunks.delete(fileId);
+            this.nackRounds.delete(fileId);
+            return;
+        }
+
+        console.warn(`Missing ${missingIndices.length} chunks for file ${fileId}, sending NACK (round ${rounds}/${MAX_NACK_ROUNDS})`);
+
+        const message = {
+            type: MessageType.CHUNK_REQUEST_NACK,
+            connId: file.connId,
+            fileId: file.fileId,
+            missingIndices
+        };
+        webrtcManager.sendControlMessage(message);
+    }
+
+    /**
+     * Send FILE_RECEIVED to the sender so it can mark its local file COMPLETED
+     * and advance the send queue. The receiver's view is the source of truth
+     * for "transfer is done from the receiver's perspective".
+     * @param {FileTransfer} file
+     */
+    sendFileReceived(file) {
+        const message = {
+            type: MessageType.FILE_RECEIVED,
+            connId: file.connId,
+            fileId: file.fileId,
+            totalBytes: file.size
+        };
+        webrtcManager.sendControlMessage(message);
     }
 
     /**
@@ -213,25 +319,32 @@ export class ChunkHandler {
             let index = 0;
             const fileSize = file.size;
 
-            reader.onload = (event) => {
+            reader.onload = async (event) => {
                 const chunk = event.target.result;
                 offset += chunk.byteLength;
 
                 // Check if this is the last chunk
                 const isLast = offset >= fileSize;
 
+                // Cache the payload for possible NACK retransmit.
+                fileTransferManager.cacheChunk(fileId, index, chunk);
+
                 // Create header + chunk
                 const header = this.createChunkHeader(fileId, index, isLast);
                 const message = this.combineBuffer(header, chunk);
 
-                // Send via data channel
-                webrtcManager.sendDataMessage(message);
+                // Send via data channel. sendDataMessage returns a Promise
+                // that resolves once the SCTP send buffer has drained past
+                // bufferedAmountLowThreshold — awaiting it is what stops
+                // the channel from overflowing on large files.
+                await webrtcManager.sendDataMessage(message);
 
                 // Read next chunk
                 if (!isLast) {
                     this.readNextChunk(reader, file, offset, index + 1, resolve, reject);
                 } else {
-                    // File transfer complete
+                    // File transfer complete (from sender's perspective); the
+                    // receiver's FILE_RECEIVED will mark the local state COMPLETED.
                     fileTransferManager.sendTransferDone(fileId);
                     resolve();
                 }
@@ -332,6 +445,7 @@ export class ChunkHandler {
      */
     cleanupFile(fileId) {
         this.receivedChunks.delete(fileId);
+        this.nackRounds.delete(fileId);
     }
 
     /**
@@ -339,6 +453,7 @@ export class ChunkHandler {
      */
     cleanupAll() {
         this.receivedChunks.clear();
+        this.nackRounds.clear();
     }
 
     /**

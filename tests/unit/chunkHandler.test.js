@@ -1,6 +1,6 @@
 /**
  * Chunk Handler Unit Tests
- * Tests for chunkHandler.js module (ADR-0014, ADR-0015, ISSUE-003)
+ * Tests for chunkHandler.js module (ADR-0014, ADR-0015)
  */
 
 describe('Chunk Handler Module', () => {
