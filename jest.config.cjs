@@ -10,6 +10,9 @@ module.exports = {
   moduleNameMapper: {
     '\\.css$': '<rootDir>/tests/mocks/css.js',
     '\\.html$': '<rootDir>/tests/mocks/html.js',
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@modules/(.*)$': '<rootDir>/src/modules/$1',
+    '^@utils/(.*)$': '<rootDir>/src/utils/$1',
   },
   verbose: true,
   testTimeout: 10000,

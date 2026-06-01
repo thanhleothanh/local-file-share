@@ -3,7 +3,7 @@
  * Tests for fileState.js module (ADR-0011, ISSUE-002)
  */
 
-import { FileState, FileTransfer } from '../../src/utils/fileState.js';
+import { FileState, FileTransfer } from '@utils/fileState.js';
 
 describe('FileState Module', () => {
     test('FileState constants are defined', () => {

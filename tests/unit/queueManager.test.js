@@ -3,7 +3,7 @@
  * Tests for FileQueueManager class in fileState.js (ISSUE-004, ISSUE-015)
  */
 
-import { FileQueueManager, FileState, FileTransfer } from '../../src/utils/fileState.js';
+import { FileQueueManager, FileState, FileTransfer } from '@utils/fileState.js';
 
 describe('FileQueueManager', () => {
     let queueManager;

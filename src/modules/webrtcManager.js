@@ -6,9 +6,9 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { compressToBase64, decompressFromBase64, generateSecret, validateQRData } from '../utils/qrCompression.js';
-import { errorHandler, ErrorType, ErrorSeverity } from '../utils/errorHandler.js';
-import { storageManager } from '../utils/storage.js';
+import { compressToBase64, decompressFromBase64, generateSecret, validateQRData } from '@utils/qrCompression.js';
+import { errorHandler, ErrorType, ErrorSeverity } from '@utils/errorHandler.js';
+import { storageManager } from '@utils/storage.js';
 
 // Will be set by main.js to avoid circular dependency
 let fileTransferManager = null;
@@ -49,6 +49,8 @@ export class WebRTCManager {
         this.peerConnection = null;
         this.controlChannel = null;
         this.dataChannel = null;
+        this.controlChannelOpen = false;
+        this.dataChannelOpen = false;
         this.connectionId = null;
         this.secret = null;
         this.state = ConnectionState.CLOSED;
@@ -226,14 +228,14 @@ export class WebRTCManager {
             type: 'offer',
             sdp
         });
-        
+
         // Add ICE candidates from offer
         for (const candidate of ice) {
             await this.peerConnection.addIceCandidate(candidate);
         }
-        
-        // Create data channels
-        await this.setupDataChannels();
+
+        // Answerer only listens for incoming data channels
+        await this.setupDataChannels(false);
         
         // Create answer
         const answer = await this.peerConnection.createAnswer();
@@ -350,9 +352,7 @@ export class WebRTCManager {
             switch (this.peerConnection.connectionState) {
                 case 'connected':
                 case 'completed':
-                    if (this.state === ConnectionState.CONNECTING) {
-                        // Wait for data channels to open
-                    }
+                    this.tryTransitionToConnected();
                     break;
                 case 'failed':
                     this.transitionState(ConnectionState.FAILED);
@@ -381,26 +381,27 @@ export class WebRTCManager {
 
     /**
      * Setup control and data data channels
+     * @param {boolean} isOfferer - Whether this side is the offerer (creates channels)
      * @returns {Promise<void>}
      */
-    async setupDataChannels() {
-        // Create control channel (ADR-0007)
-        this.controlChannel = this.peerConnection.createDataChannel('control', {
-            ordered: true,
-            maxRetransmits: 0 // Reliable
-        });
-        
-        // Create data channel (ADR-0007)
-        this.dataChannel = this.peerConnection.createDataChannel('data', {
-            ordered: true,
-            maxRetransmits: 0 // Reliable
-        });
-        
-        // Setup channel handlers
-        this.setupChannelHandlers(this.controlChannel, 'control');
-        this.setupChannelHandlers(this.dataChannel, 'data');
-        
-        // Handle incoming data channels (for the answer side)
+    async setupDataChannels(isOfferer = true) {
+        this.controlChannelOpen = false;
+        this.dataChannelOpen = false;
+        if (isOfferer) {
+            this.controlChannel = this.peerConnection.createDataChannel('control', {
+                ordered: true,
+                maxRetransmits: 0
+            });
+
+            this.dataChannel = this.peerConnection.createDataChannel('data', {
+                ordered: true,
+                maxRetransmits: 0
+            });
+
+            this.setupChannelHandlers(this.controlChannel, 'control');
+            this.setupChannelHandlers(this.dataChannel, 'data');
+        }
+
         this.peerConnection.ondatachannel = (event) => {
             const channel = event.channel;
             if (channel.label === 'control') {
@@ -425,20 +426,11 @@ export class WebRTCManager {
         channel.onopen = () => {
             console.log(`${channelName} channel opened`);
             if (channelName === 'control') {
-                // If we were waiting for channels to open, transition to CONNECTED
-                // This happens after answer QR is scanned and peer connection is established
-                if (this.state === ConnectionState.CONNECTING) {
-                    // Wait a bit for data channel to also open, then transition
-                    setTimeout(() => {
-                        if (this.state === ConnectionState.CONNECTING &&
-                            this.peerConnection.connectionState === 'connected') {
-                            this.transitionState(ConnectionState.CONNECTED);
-                            this.startIdleTimer();
-                            this.emit('connected');
-                        }
-                    }, 100);
-                }
+                this.controlChannelOpen = true;
+            } else if (channelName === 'data') {
+                this.dataChannelOpen = true;
             }
+            this.tryTransitionToConnected();
         };
 
         channel.onclose = () => {
@@ -468,6 +460,35 @@ export class WebRTCManager {
                 this.handleDataMessage(event.data);
             }
         };
+    }
+
+    /**
+     * Transition to CONNECTED once both data channels are open and the
+     * peer connection is in 'connected' or 'completed' state.
+     * Called from both channel `onopen` and `onconnectionstatechange`,
+     * because the offerer may reach the channel-open state while still
+     * in NEW (channels are created synchronously and open before the
+     * answer QR is processed), and the answerer typically sees the peer
+     * connection become 'connected' first.
+     */
+    tryTransitionToConnected() {
+        if (this.state !== ConnectionState.NEW && this.state !== ConnectionState.CONNECTING) {
+            return;
+        }
+        if (!this.controlChannelOpen || !this.dataChannelOpen) {
+            return;
+        }
+        if (!this.peerConnection) {
+            return;
+        }
+        const pcState = this.peerConnection.connectionState;
+        if (pcState !== 'connected' && pcState !== 'completed') {
+            return;
+        }
+
+        this.transitionState(ConnectionState.CONNECTED);
+        this.startIdleTimer();
+        this.emit('connected');
     }
 
     /**
@@ -545,32 +566,30 @@ export class WebRTCManager {
     getAllIceCandidates() {
         const candidates = [];
         const localDesc = this.peerConnection.localDescription;
-        
+
         if (localDesc && localDesc.sdp) {
             const lines = localDesc.sdp.split('\n');
             let currentMid = null;
-            let currentMLineIndex = null;
-            
+            let currentMLineIndex = -1;
+
             for (const line of lines) {
                 if (line.startsWith('m=')) {
-                    currentMLineIndex = lines.indexOf(line);
+                    currentMLineIndex++;
                 } else if (line.startsWith('a=mid:')) {
                     currentMid = line.split(':')[1].trim();
                 } else if (line.startsWith('a=candidate:')) {
-                    const candidate = line.substring('a=candidate:'.length);
                     candidates.push({
-                        candidate,
+                        candidate: line.substring(2),
                         sdpMid: currentMid,
                         sdpMLineIndex: currentMLineIndex
                     });
                 }
             }
         }
-        
-        // Also include any pending candidates
+
         candidates.push(...this.pendingIceCandidates);
         this.pendingIceCandidates = [];
-        
+
         return candidates;
     }
 
@@ -580,12 +599,12 @@ export class WebRTCManager {
      */
     async transitionState(newState) {
         const validTransitions = {
-            [ConnectionState.NEW]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
+            [ConnectionState.NEW]: [ConnectionState.CONNECTING, ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
             [ConnectionState.CONNECTING]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
             [ConnectionState.CONNECTED]: [ConnectionState.TRANSFERRING, ConnectionState.FAILED, ConnectionState.CLOSED],
             [ConnectionState.TRANSFERRING]: [ConnectionState.CONNECTED, ConnectionState.FAILED, ConnectionState.CLOSED],
             [ConnectionState.FAILED]: [ConnectionState.CLOSED],
-            [ConnectionState.CLOSED]: []
+            [ConnectionState.CLOSED]: [ConnectionState.NEW, ConnectionState.CONNECTING]
         };
         
         const allowedTransitions = validTransitions[this.state] || [];

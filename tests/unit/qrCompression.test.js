@@ -8,7 +8,7 @@ import {
     decompressFromBase64,
     validateQRData,
     generateSecret
-} from '../../src/utils/qrCompression.js';
+} from '@utils/qrCompression.js';
 
 describe('QR Compression Module', () => {
     describe('compressToBase64', () => {

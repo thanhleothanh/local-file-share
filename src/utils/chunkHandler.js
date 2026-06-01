@@ -3,9 +3,9 @@
  * Handles binary chunk parsing and creation for data channel (ADR-0014, ADR-0015)
  */
 
-import { webrtcManager } from '../modules/webrtcManager.js';
-import { fileTransferManager } from '../modules/fileTransfer.js';
-import { errorHandler } from './errorHandler.js';
+import { webrtcManager } from '@modules/webrtcManager.js';
+import { fileTransferManager } from '@modules/fileTransfer.js';
+import { errorHandler } from '@utils/errorHandler.js';
 
 // Chunk size: 8KB (ADR-0015)
 const CHUNK_SIZE = 8192;
@@ -19,6 +19,15 @@ export class ChunkHandler {
     constructor() {
         this.receivedChunks = new Map(); // fileId -> Map<index, ArrayBuffer>
         this.eventListeners = {};
+        this.initialized = false;
+    }
+
+    /**
+     * Initialize the handler. Must be called after webrtcManager is fully constructed.
+     */
+    init() {
+        if (this.initialized) return;
+        this.initialized = true;
         this.setupDataChannelHandler();
     }
 

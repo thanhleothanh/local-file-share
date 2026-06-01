@@ -3,12 +3,12 @@
  * Orchestrates the QR code connection handshake and WebRTC management
  */
 
-import { webrtcManager, ConnectionState, setFileTransferManager } from './modules/webrtcManager.js';
-import { qrHandler } from './modules/qrHandler.js';
-import { fileTransferManager, FileState } from './modules/fileTransfer.js';
-import { chunkHandler } from './utils/chunkHandler.js';
-import { errorHandler } from './utils/errorHandler.js';
-import { storageManager } from './utils/storage.js';
+import { webrtcManager, ConnectionState, setFileTransferManager } from '@modules/webrtcManager.js';
+import { qrHandler } from '@modules/qrHandler.js';
+import { fileTransferManager, FileState } from '@modules/fileTransfer.js';
+import { chunkHandler } from '@utils/chunkHandler.js';
+import { errorHandler } from '@utils/errorHandler.js';
+import { storageManager } from '@utils/storage.js';
 
 // DOM Elements
 const loadingIndicator = document.getElementById('loadingIndicator');
@@ -191,7 +191,7 @@ function updateUI() {
     selectFilesBtn.disabled = !isConnected;
     
     // Show/hide QR containers
-    offerQRContainer.style.display = offerQRData ? 'block' : 'none';
+    offerQRContainer.style.display = (offerQRData && !isConnected) ? 'block' : 'none';
     answerQRContainer.style.display = 
         (state === ConnectionState.CONNECTING && currentScanMode === 'OFFER') ? 'block' : 'none';
     
@@ -411,12 +411,9 @@ async function handleQRScanResult(qrData, mode) {
         if (qrData.type === 'OFFER' && mode === 'OFFER') {
             // Scanned an offer, need to generate answer
             const result = await webrtcManager.processOfferQR(qrData);
-            
-            // Store the offer data for reference
-            offerQRData = result.qrData;
+
             currentScanMode = 'OFFER';
-            
-            // Render answer QR code
+
             await qrHandler.renderQRCodeToCanvas(result.qrData, answerQRCanvas);
             answerQRContainer.style.display = 'block';
             
@@ -738,7 +735,11 @@ async function init() {
         
         // Set file transfer manager reference in webrtcManager (to avoid circular dependency)
         setFileTransferManager(fileTransferManager);
-        
+
+        // Initialize file transfer and chunk handlers (subscribes to webrtcManager events)
+        fileTransferManager.init();
+        chunkHandler.init();
+
         // Initialize WebRTC manager (loads persisted connections)
         try {
             await webrtcManager.init();
@@ -879,6 +880,18 @@ function downloadFile(fileId) {
 
 // Start the application
 init();
+
+// Expose handlers to window for inline onclick="..." in index.html (module scope is not global)
+window.createConnection = createConnection;
+window.scanQRCode = scanQRCode;
+window.closeConnection = closeConnection;
+window.retryConnection = retryConnection;
+window.confirmSendFiles = confirmSendFiles;
+window.cancelFilePreview = cancelFilePreview;
+window.acceptFileOffer = acceptFileOffer;
+window.rejectFileOffer = rejectFileOffer;
+window.downloadFile = downloadFile;
+window.cancelFileOffer = cancelFileOffer;
 
 // Export for testing
 export { createConnection, scanQRCode, closeConnection, updateUI, showAlert, formatFileSize };

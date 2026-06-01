@@ -5,8 +5,8 @@
  */
 
 import { BrowserQRCodeReader, BrowserQRCodeSvgWriter } from '@zxing/browser';
-import { compressToBase64, decompressFromBase64, validateQRData, generateSecret } from '../utils/qrCompression.js';
-import { errorHandler } from '../utils/errorHandler.js';
+import { compressToBase64, decompressFromBase64, validateQRData, generateSecret } from '@utils/qrCompression.js';
+import { errorHandler } from '@utils/errorHandler.js';
 
 /**
  * QR Handler class
@@ -19,6 +19,7 @@ export class QRHandler {
         this.scanning = false;
         this.scannerVideoElement = null;
         this.scannerStream = null;
+        this.scannerControls = null;
     }
 
     /**
@@ -41,12 +42,11 @@ export class QRHandler {
      */
     async generateQRCode(qrData, width = 300, height = 300) {
         try {
-            // Convert data to JSON string
             const dataString = JSON.stringify(qrData);
-            
-            // Create SVG
-            const svg = this.qrCodeWriter.write(dataString, width, height);
-            
+
+            const svgElement = this.qrCodeWriter.write(dataString, width, height);
+            const svg = new XMLSerializer().serializeToString(svgElement);
+
             return svg;
         } catch (error) {
             console.error('Failed to generate QR code:', error);
@@ -65,21 +65,26 @@ export class QRHandler {
     async renderQRCodeToCanvas(qrData, canvas, width = 300, height = 300) {
         try {
             const svg = await this.generateQRCode(qrData, width, height);
-            
-            // Parse SVG and draw to canvas
+
             const ctx = canvas.getContext('2d');
             const img = new Image();
-            
+            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+
             await new Promise((resolve, reject) => {
                 img.onload = () => {
                     canvas.width = width;
                     canvas.height = height;
                     ctx.clearRect(0, 0, width, height);
                     ctx.drawImage(img, 0, 0, width, height);
+                    URL.revokeObjectURL(url);
                     resolve();
                 };
-                img.onerror = reject;
-                img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+                img.onerror = (err) => {
+                    URL.revokeObjectURL(url);
+                    reject(err);
+                };
+                img.src = url;
             });
         } catch (error) {
             console.error('Failed to render QR code to canvas:', error);
@@ -125,28 +130,23 @@ export class QRHandler {
             
             const decodeContinuously = async (reader, videoElement, onResult, onError) => {
                 try {
-                    const result = await reader.decodeFromVideoDevice(
+                    this.scannerControls = await reader.decodeFromVideoDevice(
                         undefined,
                         videoElement,
-                        (result, error, stats) => {
-                            if (result) {
+                        (result, error, controls) => {
+                            if (result && this.scanning) {
                                 this.scanning = false;
                                 this.handleScanResult(result, onResult, onError);
                             }
-                            if (error) {
+                            if (error && this.scanning) {
                                 // Continue scanning on error
                             }
                         }
                     );
-                    
-                    if (result) {
-                        this.scanning = false;
-                        this.handleScanResult(result, onResult, onError);
-                    }
                 } catch (error) {
                     // Continue scanning on error
                 }
-                
+
                 if (this.scanning) {
                     setTimeout(() => decodeContinuously(reader, videoElement, onResult, onError), 100);
                 }
@@ -213,13 +213,21 @@ export class QRHandler {
      * Stop scanning QR codes
      */
     stopScanning() {
-        if (!this.scanning) {
+        if (!this.scanning && !this.scannerControls) {
             return;
         }
-        
+
         this.scanning = false;
-        
-        // Stop all video tracks
+
+        if (this.scannerControls) {
+            try {
+                this.scannerControls.stop();
+            } catch (e) {
+                // Controls may already be stopped
+            }
+            this.scannerControls = null;
+        }
+
         if (this.scannerStream) {
             this.scannerStream.getTracks().forEach(track => {
                 try {
@@ -230,8 +238,7 @@ export class QRHandler {
             });
             this.scannerStream = null;
         }
-        
-        // Clear video element
+
         if (this.scannerVideoElement) {
             this.scannerVideoElement.srcObject = null;
             this.scannerVideoElement = null;

@@ -5,10 +5,10 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { webrtcManager, ConnectionState, MessageType } from './webrtcManager.js';
-import { FileTransfer, FileState, FileQueueManager } from '../utils/fileState.js';
-import { errorHandler } from '../utils/errorHandler.js';
-import { storageManager } from '../utils/storage.js';
+import { webrtcManager, ConnectionState, MessageType } from '@modules/webrtcManager.js';
+import { FileTransfer, FileState, FileQueueManager } from '@utils/fileState.js';
+import { errorHandler } from '@utils/errorHandler.js';
+import { storageManager } from '@utils/storage.js';
 
 export { FileState };
 
@@ -25,6 +25,15 @@ export class FileTransferManager {
         this.files = new Map(); // fileId -> FileTransfer
         this.pendingOffers = new Map(); // fileId -> FileTransfer (for receiver side)
         this.eventListeners = {};
+        this.initialized = false;
+    }
+
+    /**
+     * Initialize the manager. Must be called after webrtcManager is fully constructed.
+     */
+    init() {
+        if (this.initialized) return;
+        this.initialized = true;
         this.setupMessageHandlers();
     }
 

@@ -3,8 +3,8 @@
  * Centralized error handling and recovery (ISSUE-012, ADR-0006)
  */
 
-import { webrtcManager } from '../modules/webrtcManager.js';
-import { fileTransferManager } from '../modules/fileTransfer.js';
+import { webrtcManager } from '@modules/webrtcManager.js';
+import { fileTransferManager } from '@modules/fileTransfer.js';
 
 /**
  * Error types
