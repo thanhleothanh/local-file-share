@@ -775,34 +775,50 @@ export class FileTransferManager {
     }
 
     /**
-     * Clear all files (on connection close)
-     * ADR-0018: Queued files are discarded when connection closes
+     * Wipe the in-memory file list and clean up persisted state.
+     * The in-memory wipe runs synchronously so the Files tab can
+     * re-render to the empty state without waiting for storage.
+     * IndexedDB cleanup runs in the background.
      */
     async clear() {
         const currentConn = webrtcManager.getConnectionInfo();
         const connId = currentConn.connId;
 
+        // Cancel ack timers first so they don't fire and try to
+        // advance the queue after it has been cleared.
         for (const handle of this.ackTimers.values()) {
             clearTimeout(handle);
         }
         this.ackTimers.clear();
         this.sentChunkCache.clear();
 
-        // Delete all files for this connection from storage
-        if (connId) {
-            try {
-                const files = this.getAllFiles();
-                for (const file of files) {
-                    await storageManager.deleteFile(connId, file.fileId);
-                }
-            } catch (error) {
-                console.error('Failed to clean up file storage:', error);
-            }
-        }
+        // Snapshot the file IDs that need to be removed from IndexedDB
+        // *before* we wipe the in-memory maps; the async cleanup loop
+        // below still needs to know what to delete.
+        const fileIds = [...this.files.keys()];
 
+        // Wipe in-memory state synchronously so the next render of
+        // the Files tab sees an empty list.
         this.files.clear();
         this.pendingOffers.clear();
         this.queueManager.clear();
+
+        // IndexedDB cleanup runs in the background. We don't `await` it
+        // because (a) the in-memory wipe is what the UI cares about and
+        // is already done, and (b) any leftover rows in storage will be
+        // reaped on the next `clear()` call. Per-file errors are
+        // logged but not rethrown — the connection is already gone.
+        if (connId && fileIds.length > 0) {
+            (async () => {
+                for (const fileId of fileIds) {
+                    try {
+                        await storageManager.deleteFile(connId, fileId);
+                    } catch (error) {
+                        console.error('Failed to clean up file storage:', error);
+                    }
+                }
+            })();
+        }
     }
 
     /**

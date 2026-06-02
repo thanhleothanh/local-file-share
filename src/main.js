@@ -37,15 +37,13 @@ const step2Joiner = document.getElementById('step2Joiner');
 
 // File UI Elements
 const fileInput = document.getElementById('fileInput');
-const sendFilesFab = document.getElementById('sendFilesFab');
+const sendFilesBtn = document.getElementById('sendFilesBtn');
 const filesAlert = document.getElementById('filesAlert');
 const fileList = document.getElementById('fileList');
-const filterChips = document.querySelectorAll('.filter-chips .chip');
 
 // State management
 let currentScanMode = null; // 'OFFER' or 'ANSWER'
 let offerQRData = null;
-let currentFilter = 'all'; // 'all' | 'active' | 'done'
 let connectionRole = 'idle'; // 'idle' | 'initiator' | 'joiner'
 let currentStep = 1; // 1 | 2 | 3
 let answerScannerActive = false; // tracks the step-2-initiator camera
@@ -169,8 +167,10 @@ function updateUI(oldState = webrtcManager.state) {
     stopAnswerScanner();
   }
 
-  // Files FAB is enabled only on a live connection.
-  sendFilesFab.disabled = !isConnected;
+  // Files header `+` button: visible only while the connection is
+  // CONNECTED. The button is hidden — not disabled — so a missing
+  // button signals "nothing to do" cleanly.
+  sendFilesBtn.hidden = !isConnected;
 
   renderFileList();
 }
@@ -220,56 +220,30 @@ function renderDeviceInfo() {
 }
 
 /**
- * Render the unified file list filtered by the active chip.
- *  - All: chronological (most-recent event first)
- *  - Active: PENDING, QUEUED, TRANSFERRING
- *  - Done: COMPLETED, FAILED, REJECTED, CANCELLED
- * Sender rows never show a progress bar (sender has no real-time
- * progress signal — the receiver's `bytesTransferred` doesn't reach
- * the sender's UI in a meaningful way). Receiver rows do.
+ * Render the unified file list.
+ *  - Single list of all transfers, sorted by `createdAt` descending
+ *    (newest first).
+ *  - Empty state varies by connection state: "Tap + to send your
+ *    first file" when CONNECTED, "Connect a device to start sharing
+ *    files" otherwise.
+ *  - Sender rows show no progress bar — the receiver's bytesTransferred
+ *    does not reach the sender. Receiver rows show one while actively
+ *    receiving.
  */
 function renderFileList() {
   const all = fileTransferManager.getAllFiles();
+  const isConnected = webrtcManager.isConnected();
 
-  // Update chip counts.
-  const counts = { all: all.length, active: 0, done: 0 };
-  for (const f of all) {
-    if (f.getStateGroup() === 'active') counts.active++;
-    else counts.done++;
-  }
-  for (const chip of filterChips) {
-    const key = chip.dataset.filter;
-    const countEl = chip.querySelector('[data-count]');
-    if (countEl) countEl.textContent = String(counts[key] ?? 0);
-  }
+  // Sort: newest first by createdAt. The list is a history, not a
+  // work queue — rows keep their position as they transition through
+  // states.
+  all.sort((a, b) => b.createdAt - a.createdAt);
 
-  // Filter.
-  const filtered = all.filter((f) => {
-    if (currentFilter === 'all') return true;
-    return f.getStateGroup() === currentFilter;
-  });
-
-  // Sort: All/Done by getLastEventTime desc; Active by event-time desc
-  // with TRANSFERRING first, then PENDING (offers needing action), then QUEUED.
-  filtered.sort((a, b) => {
-    if (currentFilter !== 'all') {
-      const order = { TRANSFERRING: 0, PENDING: 1, QUEUED: 2 };
-      const ao = order[a.state] ?? 3;
-      const bo = order[b.state] ?? 3;
-      if (ao !== bo) return ao - bo;
-    }
-    return b.getLastEventTime() - a.getLastEventTime();
-  });
-
-  if (filtered.length === 0) {
-    const emptyMsg =
-      currentFilter === 'active'
-        ? 'Nothing in progress'
-        : currentFilter === 'done'
-          ? 'No completed transfers yet'
-          : 'No files yet';
-    const emptyHint =
-      currentFilter === 'all' ? 'Tap + to send your first file' : '';
+  if (all.length === 0) {
+    const emptyMsg = isConnected
+      ? 'No files yet'
+      : 'Connect a device to start sharing files';
+    const emptyHint = isConnected ? 'Tap + to send your first file' : '';
     fileList.innerHTML = `
             <div class="file-list-empty">
                 <div class="empty-icon" aria-hidden="true">📁</div>
@@ -280,7 +254,7 @@ function renderFileList() {
     return;
   }
 
-  const rows = filtered.map(renderFileRow).join('');
+  const rows = all.map(renderFileRow).join('');
   fileList.innerHTML = rows;
 }
 
@@ -728,6 +702,21 @@ async function handleQRScanResult(qrData, mode) {
 webrtcManager.on('stateChange', (newState, oldState) => {
   console.log(`Connection state changed: ${oldState} -> ${newState}`);
 
+  // Clear the in-memory file list when leaving CONNECTED. The list is
+  // wiped across all states (active, completed, failed) so the Files
+  // tab re-renders to the empty state on the very next render.
+  // `clear()` is fire-and-forget: the in-memory wipe runs synchronously
+  // (so the re-render sees an empty list) and the IndexedDB cleanup
+  // runs in the background.
+  if (
+    oldState === ConnectionState.CONNECTED &&
+    (newState === ConnectionState.CLOSED || newState === ConnectionState.FAILED)
+  ) {
+    fileTransferManager.clear().catch((err) => {
+      console.error('Failed to clear files on disconnect:', err);
+    });
+  }
+
   if (newState === ConnectionState.FAILED) {
     // Peer-disconnect lifecycle event. Reset the UI right away so it
     // matches what the other device sees (a clean reload). No
@@ -1105,25 +1094,13 @@ window.cancelFileOffer = cancelFileOffer;
 window.cancelQueuedFile = cancelQueuedFile;
 window.retryFile = retryFile;
 
-// Wire the FAB to the hidden file input, and the filter chips to renderFileList.
-sendFilesFab.addEventListener('click', () => {
-  if (sendFilesFab.disabled) return;
+// Wire the Files header `+` button to the hidden file input. The
+// button is `hidden` (not `disabled`) when the connection is not
+// CONNECTED, so we don't need a disabled check here — a hidden
+// element cannot receive clicks.
+sendFilesBtn.addEventListener('click', () => {
   fileInput.click();
 });
-
-for (const chip of filterChips) {
-  chip.addEventListener('click', () => {
-    const filter = chip.dataset.filter;
-    if (filter === currentFilter) return;
-    currentFilter = filter;
-    for (const c of filterChips) {
-      const isActive = c.dataset.filter === currentFilter;
-      c.classList.toggle('active', isActive);
-      c.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    }
-    renderFileList();
-  });
-}
 
 // Export for testing
 export {

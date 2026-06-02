@@ -103,39 +103,6 @@ export class FileTransfer {
     }
 
     /**
-     * Get the timestamp of the most recent state-changing event on this file.
-     * Used to sort the All chip chronologically: a COMPLETED file appears by
-     * its completion time, a FAILED file by its termination time, an active
-     * file by its creation time.
-     * @returns {number}
-     */
-    getLastEventTime() {
-        return this.completedAt || this.terminatedAt || this.createdAt;
-    }
-
-    /**
-     * Which filter group this file belongs to in the UI:
-     *  - 'active': PENDING, QUEUED, or TRANSFERRING — anything needing
-     *    attention or in flight.
-     *  - 'done': COMPLETED, FAILED, REJECTED, CANCELLED — terminal states.
-     * @returns {'active'|'done'}
-     */
-    getStateGroup() {
-        switch (this.state) {
-            case FileState.PENDING:
-            case FileState.QUEUED:
-            case FileState.TRANSFERRING:
-                return 'active';
-            case FileState.COMPLETED:
-            case FileState.FAILED:
-            case FileState.REJECTED:
-            case FileState.CANCELLED:
-            default:
-                return 'done';
-        }
-    }
-
-    /**
      * Get file info as JSON
      * @returns {Object}
      */

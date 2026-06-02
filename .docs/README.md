@@ -77,7 +77,7 @@ This directory contains the architecture documentation for the Local File Share 
 | 24  | UUID Library for Unique Identifiers                         | Accepted | 2026-05-31 |
 | 25  | FILE_RECEIVED Acknowledgement and NACK-Based Retransmit     | Accepted | 2026-06-01 |
 | 26  | SCTP Backpressure via `bufferedamountlow`                   | Accepted | 2026-06-01 |
-| 27  | Unified Files Tab with Filter Chips                         | Accepted | 2026-06-01 |
+| 27  | Unified Files Tab (single list, header `+`, clear on disconnect) | Accepted | 2026-06-02 |
 | 28  | Connection Tab: 3-Step Dot Progress with State-Driven Panes | Accepted | 2026-06-02 |
 
 ## Key Decisions Summary
@@ -113,16 +113,17 @@ This directory contains the architecture documentation for the Local File Share 
 
 - **Connection states**: NEW, CONNECTED, TRANSFERRING, FAILED, CLOSED (ADR-0010)
 - **File states**: PENDING, QUEUED, TRANSFERRING, COMPLETED, REJECTED, FAILED, CANCELLED (ADR-0011)
-- **State group**: Active (PENDING/QUEUED/TRANSFERRING) vs Done (terminal) for the Files tab chips (ADR-0011, ADR-0027)
 - **Idle timeout**: 5 minutes in CONNECTED, reset on network activity (ADR-0010)
 - **Cleanup**: Discard queued files on close (ADR-0018)
 
-### Files Tab (M2 redesign, ADR-0027)
+### Files Tab (current design, ADR-0027)
 
-- **Unified list** of send + receive, with **All / Active / Done** filter chips
+- **Single list** of send + receive, sorted by `createdAt` descending (newest first). No filter chips.
+- **Send button (`+`) in the Files header**, right-aligned. Visible only while the connection is `CONNECTED`; hidden otherwise.
+- **Empty state is connection-aware**: "Tap + to send your first file" when `CONNECTED`; "Connect a device to start sharing files" otherwise.
+- **List is cleared on disconnect** (any transition out of `CONNECTED`), so each session starts with a clean slate.
 - **No sender progress bar** (sender has no real-time progress signal)
 - **No `Download` button** on completed receives (auto-downloaded; chunk data not persisted)
-- **FAB anchored to the panel**, not the viewport
 - **Mobile-first** single column; same layout on both peers
 
 ### Connection Tab (M2 redesign, ADR-0028)

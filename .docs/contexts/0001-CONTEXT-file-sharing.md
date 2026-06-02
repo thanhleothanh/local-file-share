@@ -16,13 +16,12 @@ The File Sharing context enables sending files between devices on the same local
 | **QR Handshake** | The two-QR code (ping-pong) process used to establish a WebRTC connection between two devices |
 | **Control Channel** | A WebRTC data channel dedicated to JSON signaling messages (file offers, accepts, etc.) |
 | **Data Channel** | A WebRTC data channel dedicated to binary file chunk transmission. Reliable + ordered; subject to SCTP backpressure (ADR-0025, ADR-0026). |
-| **Active file** | A file in `PENDING`, `QUEUED`, or `TRANSFERRING` state. Appears under the **Active** filter chip. |
-| **Done file** | A file in a terminal state — `COMPLETED`, `FAILED`, `REJECTED`, or `CANCELLED`. Appears under the **Done** filter chip. |
-| **Filter chip** | One of three buttons above the Files list: **All**, **Active**, **Done**. Each shows a live count. (ADR-0027) |
 | **SCTP backpressure** | The mechanism by which a sender paces chunks so the data channel's send buffer never overflows. The sender awaits `bufferedamountlow` before pushing the next chunk; threshold is 1 MiB. (ADR-0026) |
 | **Ack timeout** | The 30-second window the sender waits for the receiver's `FILE_RECEIVED` after sending `TRANSFER_DONE`. If it expires, the file is marked `FAILED` and the queue advances. (ADR-0025) |
 | **NACK round** | One pass of "receiver reports missing indices, sender re-sends them from `sentChunkCache`". Bounded at `MAX_NACK_ROUNDS = 3`; after that the file is marked `FAILED`. (ADR-0025) |
-| **Last-event time** | The timestamp `getLastEventTime()` returns for sorting the All / Done chips: `completedAt` for `COMPLETED` files, `terminatedAt` for `FAILED` / `REJECTED` / `CANCELLED`, otherwise `createdAt`. (ADR-0011) |
+| **Files list** | The single scrolling list in the Files tab. Rows are sorted by `createdAt` descending (newest first) and include all states. There are no filter chips. (ADR-0027) |
+| **Send button** | The `+` button in the right end of the Files header. Visible only while the connection is `CONNECTED`; opens the OS file picker. (ADR-0027) |
+| **Files empty state** | The placeholder shown when the list has zero rows. Two variants: "Tap + to send your first file" when `CONNECTED`, "Connect a device to start sharing files" otherwise. (ADR-0027) |
 | **Connection step** | One of three states in the Connection tab's progress bar: **Offer**, **Answer**, **Connected**. Each step renders different content based on the device's `connectionRole`. |
 | **Connection role** | The device's position in the 2-QR handshake: **idle** (no choice yet), **initiator** (chose to create the offer, will scan the answer), or **joiner** (chose to scan the offer, will show the answer). Drawn from the same `connectionRole` JS state in `main.js`. |
 | **Step pane** | One of three `div.step-pane` containers in the Connection tab — `step1Pane`, `step2Pane`, `step3Pane`. Only one is visible at a time, switched by `renderStepContent()`. |
