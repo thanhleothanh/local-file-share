@@ -7,16 +7,20 @@
     <title>Local File Share</title>
     <style>
         :root {
-            --bg-primary: #1a1a2e;
-            --bg-secondary: #16213e;
-            --bg-card: #0f3460;
-            --text-primary: #eaeaea;
-            --text-secondary: #a0a0a0;
-            --accent: #00d4ff;
-            --accent-alt: #0099cc;
-            --success: #4caf50;
-            --warning: #ff9800;
-            --error: #f44336;
+            --bg-primary: #1E2632;
+            --bg-secondary: #262F3D;
+            --bg-card: #2f3946;
+            --bg-light: #F5EFE3;
+            --text-primary: #F5EFE3;
+            --text-secondary: #B0A89C;
+            --text-on-light: #1E2632;
+            --accent: #EE4D2D;
+            --accent-alt: #C73E1A;
+            --accent-pale: #F8DCC8;
+            --success: #5DB075;
+            --warning: #E0A23A;
+            --error: #E5483C;
+            --info: #5BAEC0;
         }
 
         * {
@@ -138,12 +142,12 @@
         }
 
         progress::-webkit-progress-value {
-            background: linear-gradient(90deg, var(--success), var(--accent));
+            background: var(--text-primary);
             border-radius: 4px;
         }
 
         progress::-moz-progress-bar {
-            background: linear-gradient(90deg, var(--success), var(--accent));
+            background: var(--text-primary);
             border-radius: 4px;
         }
 
@@ -159,7 +163,7 @@
 
         .custom-progress-bar {
             height: 100%;
-            background: linear-gradient(90deg, var(--success), var(--accent));
+            background: var(--text-primary);
             border-radius: 4px;
             transition: width 0.3s ease;
             display: flex;
@@ -196,7 +200,7 @@
         .spinner {
             width: 40px;
             height: 40px;
-            border: 4px solid rgba(0, 212, 255, 0.3);
+            border: 4px solid rgba(238, 77, 45, 0.3);
             border-top-color: var(--accent);
             border-radius: 50%;
             animation: spin 1s linear infinite;
@@ -247,7 +251,7 @@
         }
 
         .btn-secondary:hover:not(:disabled) {
-            background: #253450;
+            background: #34404F;
         }
 
         .btn-danger {
@@ -256,7 +260,16 @@
         }
 
         .btn-danger:hover:not(:disabled) {
-            background: #d32f2f;
+            background: #C73E28;
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: #000;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #3E8A59;
         }
 
         .qr-container {
@@ -268,7 +281,7 @@
         .qr-container img {
             max-width: 100%;
             max-height: 480px;
-            background: white;
+            background: var(--bg-light);
             border-radius: 8px;
             /* The canvas already carries the QR's own quiet zone (set to
                2 modules via EncodeHintType.MARGIN in qrHandler.js). The
@@ -308,7 +321,7 @@
             right: 0;
             bottom: 0;
             pointer-events: none;
-            border: 2px solid rgba(0, 212, 255, 0.3);
+            border: 2px solid rgba(238, 77, 45, 0.3);
             border-radius: 8px;
         }
 
@@ -317,7 +330,7 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(15, 52, 96, 0.9);
+            background: rgba(30, 38, 50, 0.9);
             padding: 1rem;
             border-radius: 8px;
             text-align: center;
@@ -400,25 +413,25 @@
 
         .toast-error {
             border-color: var(--error);
-            background: #5c1f1f;
+            background: #3D1F1A;
             color: var(--error);
         }
 
         .toast-success {
             border-color: var(--success);
-            background: #1f4628;
+            background: #1F3A28;
             color: var(--success);
         }
 
         .toast-info {
-            border-color: var(--accent);
-            background: #0e3a4a;
-            color: var(--accent);
+            border-color: var(--info);
+            background: #0E3A4A;
+            color: var(--info);
         }
 
         .toast-warning {
             border-color: var(--warning);
-            background: #4a3015;
+            background: #3D2E15;
             color: var(--warning);
         }
 
@@ -471,22 +484,24 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 2.25rem;
-            height: 2.25rem;
+            width: 2.75rem;
+            height: 2.75rem;
             padding: 0;
             border: none;
             border-radius: 8px;
             background: var(--accent);
             color: #000;
-            font-size: 1.4rem;
+            font-size: 1.6rem;
             line-height: 1;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.15s, transform 0.1s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
         }
 
         .files-send-btn:hover {
             background: var(--accent-alt);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
         }
 
         .files-send-btn:active {
@@ -623,7 +638,7 @@
 
         .file-progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, var(--success), var(--accent));
+            background: var(--text-primary);
             border-radius: 3px;
             transition: width 0.2s ease;
         }
@@ -723,17 +738,17 @@
             background: var(--accent);
             border-color: var(--accent);
             color: #000;
-            box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.18);
+            box-shadow: 0 0 0 4px rgba(238, 77, 45, 0.18);
         }
 
         /* Step 3 (Connected) gets a special treatment: green instead of
-           accent (cyan) and a heartbeat to signal "we are live". The
-           default active style above applies to steps 1 and 2. */
+           the brand accent and a heartbeat to signal "we are live".
+           The default active style above applies to steps 1 and 2. */
         .step-dot[data-step="3"].active .dot {
             background: var(--success);
             border-color: var(--success);
             color: #000;
-            box-shadow: 0 0 0 4px rgba(76, 175, 80, 0.25);
+            box-shadow: 0 0 0 4px rgba(93, 176, 117, 0.25);
             animation: heartbeat 1.4s ease-in-out infinite;
         }
 
@@ -848,7 +863,7 @@
 
         .btn-card:hover:not(:disabled) {
             border-color: var(--accent);
-            background: rgba(0, 212, 255, 0.08);
+            background: rgba(238, 77, 45, 0.08);
             transform: translateY(-1px);
         }
 

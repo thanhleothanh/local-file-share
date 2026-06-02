@@ -365,7 +365,7 @@ function renderFileActions(file) {
 
   if (file.state === FileState.PENDING && !isSend) {
     buttons.push(
-      `<button class="btn btn-primary" onclick="acceptFileOffer('${file.fileId}')">Accept</button>`,
+      `<button class="btn btn-success" onclick="acceptFileOffer('${file.fileId}')">Accept</button>`,
     );
     buttons.push(
       `<button class="btn btn-danger" onclick="rejectFileOffer('${file.fileId}')">Reject</button>`,
