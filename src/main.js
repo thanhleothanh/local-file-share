@@ -13,6 +13,7 @@ import { fileTransferManager, FileState } from '@modules/fileTransfer.js';
 import { chunkHandler } from '@utils/chunkHandler.js';
 import { errorHandler } from '@utils/errorHandler.js';
 import { storageManager } from '@utils/storage.js';
+import { toastManager } from '@utils/toast.js';
 
 // DOM Elements
 const loadingIndicator = document.getElementById('loadingIndicator');
@@ -20,7 +21,6 @@ const offerQRCanvas = document.getElementById('offerQRCanvas');
 const answerQRCanvas = document.getElementById('answerQRCanvas');
 const scannerVideo = document.getElementById('scannerVideo');
 const answerScannerVideo = document.getElementById('answerScannerVideo');
-const connectionAlert = document.getElementById('connectionAlert');
 const myDeviceType = document.getElementById('myDeviceType');
 const stepDots = document.querySelectorAll('.step-dot');
 const stepLines = document.querySelectorAll('.step-line');
@@ -38,7 +38,6 @@ const step2Joiner = document.getElementById('step2Joiner');
 // File UI Elements
 const fileInput = document.getElementById('fileInput');
 const sendFilesBtn = document.getElementById('sendFilesBtn');
-const filesAlert = document.getElementById('filesAlert');
 const fileList = document.getElementById('fileList');
 
 // State management
@@ -438,19 +437,12 @@ function escapeHtml(s) {
 }
 
 /**
- * Show an alert message
- * @param {string} message - Message to display
- * @param {string} type - 'error' or 'success'
+ * Show a toast notification.
+ * @param {string} message - Message text
+ * @param {'error'|'success'|'info'|'warning'} [type='error']
  */
-function showAlert(message, type = 'error') {
-  connectionAlert.textContent = message;
-  connectionAlert.className = 'alert alert-' + type;
-  connectionAlert.style.display = 'block';
-
-  // Hide after 5 seconds
-  setTimeout(() => {
-    connectionAlert.style.display = 'none';
-  }, 5000);
+function showToast(message, type = 'error') {
+  toastManager.show(message, type);
 }
 
 /**
@@ -476,7 +468,7 @@ async function createConnection() {
     updateUI();
   } catch (error) {
     console.error('Failed to create connection:', error);
-    showAlert('Failed to create connection: ' + error.message);
+    showToast('Failed to create connection: ' + error.message);
   }
 }
 
@@ -510,7 +502,7 @@ async function scanOfferQR() {
       },
       (error) => {
         console.error('Scan error:', error);
-        showAlert('Scan error: ' + error.message);
+        showToast('Scan error: ' + error.message);
         qrHandler.stopScanning();
         // Roll back to idle so the user can try again.
         connectionRole = 'idle';
@@ -520,7 +512,7 @@ async function scanOfferQR() {
     );
   } catch (error) {
     console.error('Failed to start scanning:', error);
-    showAlert('Failed to access camera: ' + error.message);
+    showToast('Failed to access camera: ' + error.message);
     qrHandler.stopScanning();
     connectionRole = 'idle';
     currentStep = 1;
@@ -550,14 +542,14 @@ async function scanAnswerQR() {
       },
       (error) => {
         console.error('Scan error:', error);
-        showAlert('Scan error: ' + error.message);
+        showToast('Scan error: ' + error.message);
         qrHandler.stopScanning();
         stopAnswerScanner();
       },
     );
   } catch (error) {
     console.error('Failed to start scanning:', error);
-    showAlert('Failed to access camera: ' + error.message);
+    showToast('Failed to access camera: ' + error.message);
     qrHandler.stopScanning();
     stopAnswerScanner();
   }
@@ -693,7 +685,7 @@ async function handleQRScanResult(qrData, mode) {
   } catch (error) {
     console.error('Failed to process QR code:', error);
     qrHandler.stopScanning();
-    showAlert('Failed to process QR code: ' + error.message);
+    showToast('Failed to process QR code: ' + error.message);
     updateUI();
   }
 }
@@ -719,11 +711,11 @@ webrtcManager.on('stateChange', (newState, oldState) => {
 
   if (newState === ConnectionState.FAILED) {
     // Peer-disconnect lifecycle event. Reset the UI right away so it
-    // matches what the other device sees (a clean reload). No
-    // showAlert: the dot progress bar jumping back to step 1 is the
-    // signal, and a delayed "Connection failed" / "ICE negotiation
-    // failed" dialog would be asymmetric across the two devices and
-    // not actionable for the user.
+    // matches what the other device sees (a clean reload). No toast
+    // here: the dot progress bar jumping back to step 1 is the signal,
+    // and a delayed "Connection failed" / "ICE negotiation failed"
+    // toast would be asymmetric across the two devices and not
+    // actionable for the user.
     resetToIdle();
     return;
   }
@@ -748,7 +740,7 @@ webrtcManager.on('closed', () => {
 });
 
 webrtcManager.on('idleTimeout', () => {
-  showAlert('Connection timed out due to inactivity', 'error');
+  showToast('Connection timed out due to inactivity', 'error');
   updateUI();
 });
 
@@ -765,7 +757,7 @@ async function handleFileSelection(event) {
   const MAX = 500 * 1024 * 1024;
   const validFiles = files.filter((f) => f.size <= MAX);
   if (validFiles.length === 0) {
-    showFilesAlert(
+    showToast(
       'No valid files selected (check file size - max 500MB)',
       'error',
     );
@@ -773,7 +765,7 @@ async function handleFileSelection(event) {
     return;
   }
   if (validFiles.length < files.length) {
-    showFilesAlert(
+    showToast(
       `${files.length - validFiles.length} file(s) skipped (too large)`,
       'error',
     );
@@ -784,12 +776,12 @@ async function handleFileSelection(event) {
       sendImmediately: true,
     });
     if (transfers.length > 0) {
-      showFilesAlert(`${transfers.length} file(s) sent to peer`, 'success');
+      showToast(`${transfers.length} file(s) sent to peer`, 'success');
     }
     updateUI();
   } catch (error) {
     console.error('Failed to send files:', error);
-    showFilesAlert('Failed to send files: ' + error.message, 'error');
+    showToast('Failed to send files: ' + error.message, 'error');
   }
 
   event.target.value = '';
@@ -802,11 +794,11 @@ async function handleFileSelection(event) {
 async function cancelFileOffer(fileId) {
   try {
     await fileTransferManager.sendFileCancel(fileId);
-    showFilesAlert('File offer cancelled', 'success');
+    showToast('File offer cancelled', 'success');
     updateUI();
   } catch (error) {
     console.error('Failed to cancel file offer:', error);
-    showFilesAlert('Failed to cancel: ' + error.message, 'error');
+    showToast('Failed to cancel: ' + error.message, 'error');
   }
 }
 
@@ -820,7 +812,7 @@ async function cancelQueuedFile(fileId) {
     updateUI();
   } catch (error) {
     console.error('Failed to remove queued file:', error);
-    showFilesAlert('Failed to remove: ' + error.message, 'error');
+    showToast('Failed to remove: ' + error.message, 'error');
   }
 }
 
@@ -831,7 +823,7 @@ async function cancelQueuedFile(fileId) {
 async function retryFile(fileId) {
   // The simplest retry is to re-offer the file from scratch. The original
   // fileObject is gone from memory, so the user re-selects it.
-  showFilesAlert('Tap + to reselect the file', 'info');
+  showToast('Tap + to reselect the file', 'info');
 }
 
 /**
@@ -844,10 +836,10 @@ async function acceptFileOffer(fileId) {
       const file = fileTransferManager.getFile(fileId);
       if (file) {
         await fileTransferManager.sendFileAccept(fileId);
-        showFilesAlert(`Accepted: ${file.name}`, 'success');
+        showToast(`Accepted: ${file.name}`, 'success');
       }
     } catch (error) {
-      showFilesAlert(`Failed to accept: ${error.message}`, 'error');
+      showToast(`Failed to accept: ${error.message}`, 'error');
     }
     updateUI();
   }
@@ -863,30 +855,16 @@ async function rejectFileOffer(fileId) {
       const file = fileTransferManager.getFile(fileId);
       if (file) {
         await fileTransferManager.sendFileReject(fileId, 'USER_REJECTED');
-        showFilesAlert(`Rejected: ${file.name}`, 'success');
+        showToast(`Rejected: ${file.name}`, 'success');
       }
     } catch (error) {
-      showFilesAlert(`Failed to reject: ${error.message}`, 'error');
+      showToast(`Failed to reject: ${error.message}`, 'error');
     }
     updateUI();
   }
 }
 
-/**
- * Show files alert message
- * @param {string} message - Message to display
- * @param {string} type - 'error' or 'success'
- */
-function showFilesAlert(message, type = 'error') {
-  filesAlert.textContent = message;
-  filesAlert.className = 'alert alert-' + type;
-  filesAlert.style.display = 'block';
 
-  // Hide after 5 seconds
-  setTimeout(() => {
-    filesAlert.style.display = 'none';
-  }, 5000);
-}
 
 // Initialize UI
 async function init() {
@@ -922,7 +900,7 @@ async function init() {
 
     // Setup error handler
     errorHandler.on('showError', ({ message, type }) => {
-      showAlert(message, type);
+      showToast(message, type);
     });
 
     // Setup file input handler
@@ -938,7 +916,7 @@ async function init() {
     updateUI();
   } catch (error) {
     hideLoading();
-    showAlert('Failed to initialize application: ' + error.message, 'error');
+    showToast('Failed to initialize application: ' + error.message, 'error');
     console.error('Initialization error:', error);
   }
 }
@@ -949,12 +927,12 @@ async function init() {
 function setupModuleListeners() {
   // Setup file transfer event listeners
   fileTransferManager.on('fileOfferSent', (file) => {
-    showFilesAlert(`Offer sent: ${file.name}`, 'success');
+    showToast(`Offer sent: ${file.name}`, 'success');
     updateUI();
   });
 
   fileTransferManager.on('fileOfferReceived', (file) => {
-    showFilesAlert(
+    showToast(
       `File offer received: ${file.name} (${formatFileSize(file.size)})`,
       'success',
     );
@@ -962,27 +940,27 @@ function setupModuleListeners() {
   });
 
   fileTransferManager.on('fileAccepted', (file) => {
-    showFilesAlert(`File accepted: ${file.name}`, 'success');
+    showToast(`File accepted: ${file.name}`, 'success');
     updateUI();
   });
 
   fileTransferManager.on('fileRejected', (file) => {
-    showFilesAlert(`File rejected: ${file.name}`, 'error');
+    showToast(`File rejected: ${file.name}`, 'error');
     updateUI();
   });
 
   fileTransferManager.on('fileCancelled', (file) => {
-    showFilesAlert(`File cancelled: ${file.name}`, 'error');
+    showToast(`File cancelled: ${file.name}`, 'error');
     updateUI();
   });
 
   fileTransferManager.on('fileError', (error) => {
-    showFilesAlert(`File error: ${error.error}`, 'error');
+    showToast(`File error: ${error.error}`, 'error');
   });
 
   // Setup chunk handler events
   chunkHandler.on('fileDataComplete', ({ file, data }) => {
-    showFilesAlert(
+    showToast(
       `File received: ${file.name} (${formatFileSize(data.byteLength)})`,
       'success',
     );
@@ -1004,13 +982,13 @@ function setupModuleListeners() {
   });
 
   fileTransferManager.on('fileTransferFailed', (file) => {
-    showFilesAlert(`Transfer failed: ${file.name}`, 'error');
+    showToast(`Transfer failed: ${file.name}`, 'error');
     renderFileList();
   });
 
   fileTransferManager.on('fileTransferComplete', (file) => {
     if (file.direction === 'send') {
-      showFilesAlert(`File sent: ${file.name}`, 'success');
+      showToast(`File sent: ${file.name}`, 'success');
     }
     renderFileList();
   });
@@ -1053,7 +1031,7 @@ function downloadFile(fileId) {
   // In a full implementation, we would retrieve from IndexedDB
   const file = fileTransferManager.getFile(fileId);
   if (!file) {
-    showFilesAlert('File not found', 'error');
+    showToast('File not found', 'error');
     return;
   }
 
@@ -1063,16 +1041,16 @@ function downloadFile(fileId) {
     .then((data) => {
       if (data) {
         createDownloadLink(file, data);
-        showFilesAlert(`Downloaded: ${file.name}`, 'success');
+        showToast(`Downloaded: ${file.name}`, 'success');
       } else {
-        showFilesAlert(
+        showToast(
           'File data not available. File may have been cleaned up.',
           'error',
         );
       }
     })
     .catch((error) => {
-      showFilesAlert('Failed to download: ' + error.message, 'error');
+      showToast('Failed to download: ' + error.message, 'error');
     });
 }
 
@@ -1115,6 +1093,6 @@ export {
   teardownConnection,
   resetToIdle,
   updateUI,
-  showAlert,
+  showToast,
   formatFileSize,
 };

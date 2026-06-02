@@ -342,22 +342,94 @@
             color: var(--accent);
         }
 
-        .alert {
-            padding: 1rem;
-            border-radius: 8px;
-            margin: 1rem 0;
+        /* ------------------------------------------------------------------
+           Toast notifications
+           ------------------------------------------------------------------ */
+        .toast-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-width: min(360px, calc(100vw - 2rem));
+            pointer-events: none;
         }
 
-        .alert-error {
-            background: rgba(244, 67, 54, 0.1);
-            border: 1px solid var(--error);
+        .toast {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid;
+            border-left-width: 4px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            font-size: 0.9rem;
+            line-height: 1.4;
+            pointer-events: auto;
+            opacity: 0;
+            transform: translateY(-8px);
+            transition: opacity 200ms ease, transform 200ms ease;
+        }
+
+        .toast-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast-leaving {
+            opacity: 0;
+            transform: translateY(-8px);
+        }
+
+        .toast-icon {
+            flex: 0 0 auto;
+            font-size: 1.05rem;
+            line-height: 1.4;
+            font-weight: 600;
+        }
+
+        .toast-text {
+            flex: 1 1 auto;
+            word-wrap: break-word;
+        }
+
+        .toast-error {
+            border-color: var(--error);
+            background: #5c1f1f;
             color: var(--error);
         }
 
-        .alert-success {
-            background: rgba(76, 175, 80, 0.1);
-            border: 1px solid var(--success);
+        .toast-success {
+            border-color: var(--success);
+            background: #1f4628;
             color: var(--success);
+        }
+
+        .toast-info {
+            border-color: var(--accent);
+            background: #0e3a4a;
+            color: var(--accent);
+        }
+
+        .toast-warning {
+            border-color: var(--warning);
+            background: #4a3015;
+            color: var(--warning);
+        }
+
+        @media (max-width: 768px) {
+            .toast-container {
+                top: 0.5rem;
+                left: 0.5rem;
+                right: 0.5rem;
+                max-width: none;
+                padding-top: env(safe-area-inset-top, 0);
+            }
         }
 
         .section {
@@ -907,8 +979,6 @@
                     </div>
                 </div>
 
-                <div id="connectionAlert" class="alert" style="display: none;"></div>
-
                 <!-- Step 1: Offer -->
                 <div class="step-pane" id="step1Pane">
                     <div id="step1Idle">
@@ -1008,8 +1078,6 @@
                         <span aria-hidden="true">+</span>
                     </button>
                 </div>
-
-                <div id="filesAlert" class="alert" style="display: none;"></div>
 
                 <div id="fileList" class="file-list" role="list"></div>
 
