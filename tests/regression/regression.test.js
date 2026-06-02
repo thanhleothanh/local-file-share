@@ -14,6 +14,7 @@ import { chunkHandler as chunkHandlerSingleton } from '@utils/chunkHandler.js';
 import { storageManager as storageManagerSingleton } from '@utils/storage.js';
 import { FileTransfer as FileTransferClass } from '@utils/fileState.js';
 import { fileTransferManager as fileTransferManagerSingleton } from '@modules/fileTransfer.js';
+import { errorHandler as errorHandlerSingleton } from '@utils/errorHandler.js';
 
 describe('Regression: connection state machine', () => {
     let manager;
@@ -473,6 +474,19 @@ describe('Regression: QRHandler.generateQRCode returns a serialised SVG string',
         const svg = await handler.generateQRCode({ type: 'OFFER', connId: 'c' }, 100, 100);
         expect(svg).toMatch(/^<svg/);
         expect(svg).toMatch(/<\/svg>$/);
+    });
+
+    test('writes a smaller quiet zone (MARGIN=2) so the QR modules fill more of the canvas', async () => {
+        // zxing's default quiet zone is 4 modules. We pass MARGIN=2 so
+        // the visible white padding around the modules shrinks. Pin
+        // this so a future zxing bump or accidental revert of the
+        // hints map cannot silently make the QR shrink again.
+        const writeSpy = jest.spyOn(handler.qrCodeWriter, 'write');
+        await handler.generateQRCode({ type: 'OFFER', connId: 'c' }, 200, 200);
+        const [, , , hints] = writeSpy.mock.calls[0];
+        expect(hints).toBeDefined();
+        expect(hints.get(6 /* EncodeHintType.MARGIN */)).toBe(2);
+        writeSpy.mockRestore();
     });
 });
 
@@ -1561,5 +1575,115 @@ describe('Regression: bidirectional file transfer (send then receive, then send 
         expect(sendFile.state).toBe('TRANSFERRING');
         expect(mgr.queueManager.currentFile).toBe(sendFile);
         expect(mgr.queueManager.hasCurrentFile()).toBe(true);
+    });
+});
+
+/**
+ * Regression for the bug where device B (still connected) would show one
+ * or two delayed red "Connection failed" / "ICE negotiation failed" error
+ * dialogs after device A reloaded its page. The peer-disconnect lifecycle
+ * events from the WebRTC layer must:
+ *   1. transition the connection state to FAILED, AND
+ *   2. NOT escalate to a user-facing error (the other device's UI is the
+ *      same — a clean reload — so a dialog would be asymmetric and not
+ *      actionable for the user).
+ */
+describe('Regression: peer-disconnect is silent (no user-facing error)', () => {
+    let manager;
+    let errorSpy;
+
+    beforeEach(() => {
+        manager = new WebRTCManager();
+        // Install a mock peerConnection that records the on*change handlers
+        // so the test can fire them manually — the constructor's
+        // setupPeerConnectionHandlers() runs against MockRTCPeerConnection
+        // which is a plain object, so we re-run setup against our mock.
+        manager.peerConnection = {
+            connectionState: 'new',
+            iceConnectionState: 'new',
+            onicecandidate: null,
+            onconnectionstatechange: null,
+            oniceconnectionstatechange: null,
+            ondatachannel: null,
+        };
+        manager.setupPeerConnectionHandlers();
+
+        // Spy on the errorHandler after import. handleWebRTCError is the
+        // path that escalates to a user alert via the CRITICAL branch.
+        errorSpy = jest.spyOn(errorHandlerSingleton, 'handleWebRTCError').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        errorSpy.mockRestore();
+    });
+
+    test('connectionstatechange -> failed transitions to FAILED and does NOT call errorHandler', async () => {
+        // Bring the manager up to CONNECTED so FAILED is a valid transition.
+        await manager.transitionState(ConnectionState.NEW);
+        await manager.transitionState(ConnectionState.CONNECTING);
+        await manager.transitionState(ConnectionState.CONNECTED);
+
+        manager.peerConnection.connectionState = 'failed';
+        manager.peerConnection.onconnectionstatechange();
+
+        expect(manager.state).toBe(ConnectionState.FAILED);
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    test('iceconnectionstatechange -> failed transitions to FAILED and does NOT call errorHandler', async () => {
+        await manager.transitionState(ConnectionState.NEW);
+        await manager.transitionState(ConnectionState.CONNECTING);
+        await manager.transitionState(ConnectionState.CONNECTED);
+
+        manager.peerConnection.iceConnectionState = 'failed';
+        manager.peerConnection.oniceconnectionstatechange();
+
+        expect(manager.state).toBe(ConnectionState.FAILED);
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    test('a late iceconnectionstatechange -> failed after FAILED is a no-op and stays silent', async () => {
+        // This is the "seconds later" scenario from the bug report: the
+        // connectionstatechange already moved us to FAILED, then a delayed
+        // iceconnectionstatechange fires. The errorHandler must not be
+        // called for this late event either.
+        await manager.transitionState(ConnectionState.NEW);
+        await manager.transitionState(ConnectionState.CONNECTING);
+        await manager.transitionState(ConnectionState.CONNECTED);
+
+        manager.peerConnection.connectionState = 'failed';
+        manager.peerConnection.onconnectionstatechange();
+        expect(manager.state).toBe(ConnectionState.FAILED);
+        expect(errorSpy).not.toHaveBeenCalled();
+
+        errorSpy.mockClear();
+        manager.peerConnection.iceConnectionState = 'failed';
+        manager.peerConnection.oniceconnectionstatechange();
+        // Late ICE event: state was FAILED -> FAILED, transitionState rejects
+        // it (FAILED not in CLOSED's validTransitions), so state stays FAILED.
+        // The error handler must still not fire.
+        expect(manager.state).toBe(ConnectionState.FAILED);
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    test('connectionstatechange -> connected/completed still tries to advance (regression guard)', async () => {
+        // Sanity check: removing the errorHandler calls must not have
+        // broken the happy path. Bring the manager up to NEW, set up
+        // channels (mirroring the offerer setup in earlier tests), open
+        // them, and verify the 'connected' state still drives the
+        // transition.
+        const controlChannel = { label: 'control', onopen: null, onclose: null, onerror: null, onmessage: null };
+        const dataChannel = { label: 'data', onopen: null, onclose: null, onerror: null, onmessage: null };
+        manager.peerConnection.createDataChannel = jest.fn((label) => label === 'control' ? controlChannel : dataChannel);
+        await manager.transitionState(ConnectionState.NEW);
+        await manager.setupDataChannels(true);
+
+        // open both channels, then fire the connected state change.
+        controlChannel.onopen();
+        dataChannel.onopen();
+        manager.peerConnection.connectionState = 'connected';
+        manager.peerConnection.onconnectionstatechange();
+
+        expect(manager.state).toBe(ConnectionState.CONNECTED);
     });
 });

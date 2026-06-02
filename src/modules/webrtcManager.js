@@ -7,7 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { compressToBase64, decompressFromBase64, generateSecret, validateQRData } from '@utils/qrCompression.js';
-import { errorHandler, ErrorType, ErrorSeverity } from '@utils/errorHandler.js';
+import { errorHandler } from '@utils/errorHandler.js';
 import { storageManager } from '@utils/storage.js';
 
 // Will be set by main.js to avoid circular dependency
@@ -357,11 +357,13 @@ export class WebRTCManager {
                     this.tryTransitionToConnected();
                     break;
                 case 'failed':
+                    // Peer-disconnect lifecycle event. The state transition
+                    // to FAILED is the signal the rest of the app uses; we
+                    // intentionally do not raise a user-facing error here,
+                    // because the other device's UI is the same (it just
+                    // reloaded) and there is nothing the user can do but
+                    // start a new connection.
                     this.transitionState(ConnectionState.FAILED);
-                    errorHandler.handleWebRTCError(
-                        new Error('Peer connection failed'),
-                        { connId: this.connectionId, state: this.peerConnection.connectionState }
-                    );
                     break;
                 case 'closed':
                 case 'disconnected':
@@ -372,11 +374,9 @@ export class WebRTCManager {
 
         this.peerConnection.oniceconnectionstatechange = () => {
             if (this.peerConnection.iceConnectionState === 'failed') {
+                // See the onconnectionstatechange 'failed' case above for
+                // why we don't escalate this to a user-facing error.
                 this.transitionState(ConnectionState.FAILED);
-                errorHandler.handleWebRTCError(
-                    new Error('ICE connection failed'),
-                    { connId: this.connectionId, iceState: this.peerConnection.iceConnectionState }
-                );
             }
         };
     }

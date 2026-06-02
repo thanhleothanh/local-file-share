@@ -5,6 +5,7 @@
  */
 
 import { BrowserQRCodeReader, BrowserQRCodeSvgWriter } from '@zxing/browser';
+import { EncodeHintType } from '@zxing/library';
 import { compressToBase64, decompressFromBase64, validateQRData, generateSecret } from '@utils/qrCompression.js';
 import { errorHandler } from '@utils/errorHandler.js';
 
@@ -34,17 +35,25 @@ export class QRHandler {
     }
 
     /**
-     * Generate a QR code SVG from data
-     * @param {Object} qrData - QR code data object
-     * @param {number} width - Canvas width (default: 300)
-     * @param {number} height - Canvas height (default: 300)
+     * Generate a QR code as an SVG string
+     * @param {Object} qrData - Data to encode
+     * @param {number} width - SVG width in pixels (default: 400)
+     * @param {number} height - SVG height in pixels (default: 400)
      * @returns {Promise<string>} SVG string
      */
-    async generateQRCode(qrData, width = 300, height = 300) {
+    async generateQRCode(qrData, width = 400, height = 400) {
         try {
             const dataString = JSON.stringify(qrData);
 
-            const svgElement = this.qrCodeWriter.write(dataString, width, height);
+            // The zxing default quiet zone is 4 modules on every side. That
+            // eats a lot of the visible canvas as white padding. 2 modules
+            // is still within the QR spec's tolerance for scanning while
+            // letting the modules fill more of the available space.
+            const hints = new Map();
+            hints.set(EncodeHintType.MARGIN, 2);
+
+            const svgElement = this.qrCodeWriter.write(dataString, width, height, hints);
+
             const svg = new XMLSerializer().serializeToString(svgElement);
 
             return svg;
@@ -58,11 +67,11 @@ export class QRHandler {
      * Generate QR code and render to canvas
      * @param {Object} qrData - QR code data object
      * @param {HTMLCanvasElement} canvas - Canvas element to render to
-     * @param {number} width - Canvas width (default: 300)
-     * @param {number} height - Canvas height (default: 300)
+     * @param {number} width - Canvas width (default: 400)
+     * @param {number} height - Canvas height (default: 400)
      * @returns {Promise<void>}
      */
-    async renderQRCodeToCanvas(qrData, canvas, width = 300, height = 300) {
+    async renderQRCodeToCanvas(qrData, canvas, width = 400, height = 400) {
         try {
             const svg = await this.generateQRCode(qrData, width, height);
 

@@ -37,7 +37,8 @@ This directory contains the architecture documentation for the Local File Share 
     ├── 0024-uuid-library-for-ids.md
     ├── 0025-file-received-ack-and-nack.md
     ├── 0026-sctp-backpressure-bufferedamountlow.md
-    └── 0027-unified-files-tab.md
+    ├── 0027-unified-files-tab.md
+    └── 0028-connection-tab-3-step-progress.md
 ```
 
 ## Quick Start
@@ -48,51 +49,55 @@ This directory contains the architecture documentation for the Local File Share 
 
 ## Architecture Decision Records (ADRs)
 
-| # | Title | Status | Date |
-|---|-------|--------|------|
-| 1 | Browser-Only with No External Servers | Accepted | 2026-05-31 |
-| 2 | WebRTC for Peer-to-Peer File Transfer | Accepted | 2026-05-31 |
-| 3 | Two-QR Code Handshake for Connection Establishment | Accepted | 2026-05-31 |
-| 4 | Connection Secret in QR Codes | Accepted | 2026-05-31 |
-| 5 | 500MB Universal File Size Limit | Accepted | 2026-05-31 |
-| 6 | Fail-Fast Error Handling | Accepted | 2026-05-31 |
-| 7 | Separate Data Channels for Control and Data | Accepted | 2026-05-31 |
-| 8 | Batch Processing for File Downloads | Accepted | 2026-05-31 |
-| 9 | FIFO Queue with 500MB Size Limit | Accepted | 2026-05-31 |
-| 10 | Connection State Machine | Accepted | 2026-05-31 |
-| 11 | File State Machine | Accepted | 2026-05-31 |
-| 12 | QR Code Compression for WebRTC Signaling | Accepted | 2026-05-31 |
-| 13 | Message Format: JSON + Binary | Accepted | 2026-05-31 |
-| 14 | Binary Header Format for Data Channel | Accepted | 2026-05-31 |
-| 15 | 8KB Chunk Size | Accepted | 2026-05-31 |
-| 16 | zxing-js/browser for QR Code Scanning | Accepted | 2026-05-31 |
-| 17 | 1:1 Connections Only | Accepted | 2026-05-31 |
-| 18 | Discard Queued Files on Connection Close | Accepted | 2026-05-31 |
-| 19 | HTML5 + ES6+ for Browser-Only Application | Accepted | 2026-05-31 |
-| 20 | WebRTC Data Channels for Direct P2P Communication | Accepted | 2026-05-31 |
-| 21 | IndexedDB for Browser Storage | Accepted | 2026-05-31 |
-| 22 | zxing-js/browser for QR Code Scanning and Generation | Accepted | 2026-05-31 |
-| 23 | Pako for Gzip Compression | Accepted | 2026-05-31 |
-| 24 | UUID Library for Unique Identifiers | Accepted | 2026-05-31 |
-| 25 | FILE_RECEIVED Acknowledgement and NACK-Based Retransmit | Accepted | 2026-06-01 |
-| 26 | SCTP Backpressure via `bufferedamountlow` | Accepted | 2026-06-01 |
-| 27 | Unified Files Tab with Filter Chips | Accepted | 2026-06-01 |
+| #   | Title                                                       | Status   | Date       |
+| --- | ----------------------------------------------------------- | -------- | ---------- |
+| 1   | Browser-Only with No External Servers                       | Accepted | 2026-05-31 |
+| 2   | WebRTC for Peer-to-Peer File Transfer                       | Accepted | 2026-05-31 |
+| 3   | Two-QR Code Handshake for Connection Establishment          | Accepted | 2026-05-31 |
+| 4   | Connection Secret in QR Codes                               | Accepted | 2026-05-31 |
+| 5   | 500MB Universal File Size Limit                             | Accepted | 2026-05-31 |
+| 6   | Fail-Fast Error Handling                                    | Accepted | 2026-05-31 |
+| 7   | Separate Data Channels for Control and Data                 | Accepted | 2026-05-31 |
+| 8   | Batch Processing for File Downloads                         | Accepted | 2026-05-31 |
+| 9   | FIFO Queue with 500MB Size Limit                            | Accepted | 2026-05-31 |
+| 10  | Connection State Machine                                    | Accepted | 2026-05-31 |
+| 11  | File State Machine                                          | Accepted | 2026-05-31 |
+| 12  | QR Code Compression for WebRTC Signaling                    | Accepted | 2026-05-31 |
+| 13  | Message Format: JSON + Binary                               | Accepted | 2026-05-31 |
+| 14  | Binary Header Format for Data Channel                       | Accepted | 2026-05-31 |
+| 15  | 8KB Chunk Size                                              | Accepted | 2026-05-31 |
+| 16  | zxing-js/browser for QR Code Scanning                       | Accepted | 2026-05-31 |
+| 17  | 1:1 Connections Only                                        | Accepted | 2026-05-31 |
+| 18  | Discard Queued Files on Connection Close                    | Accepted | 2026-05-31 |
+| 19  | HTML5 + ES6+ for Browser-Only Application                   | Accepted | 2026-05-31 |
+| 20  | WebRTC Data Channels for Direct P2P Communication           | Accepted | 2026-05-31 |
+| 21  | IndexedDB for Browser Storage                               | Accepted | 2026-05-31 |
+| 22  | zxing-js/browser for QR Code Scanning and Generation        | Accepted | 2026-05-31 |
+| 23  | Pako for Gzip Compression                                   | Accepted | 2026-05-31 |
+| 24  | UUID Library for Unique Identifiers                         | Accepted | 2026-05-31 |
+| 25  | FILE_RECEIVED Acknowledgement and NACK-Based Retransmit     | Accepted | 2026-06-01 |
+| 26  | SCTP Backpressure via `bufferedamountlow`                   | Accepted | 2026-06-01 |
+| 27  | Unified Files Tab with Filter Chips                         | Accepted | 2026-06-01 |
+| 28  | Connection Tab: 3-Step Dot Progress with State-Driven Panes | Accepted | 2026-06-02 |
 
 ## Key Decisions Summary
 
 ### Core Architecture
+
 - **Pure browser-based** with no servers (ADR-0001)
 - **WebRTC** for P2P file transfer (ADR-0002)
 - **2-QR handshake** for connection establishment (ADR-0003)
 - **Connection secret** in QR for authentication (ADR-0004)
 
 ### Limits & Constraints
+
 - **500MB file limit** universal (ADR-0005)
 - **Fail-fast** error handling (ADR-0006)
 - **1:1 connections only** (ADR-0017)
 - **Queue size limit**: 500MB for queued files (ADR-0009, SEND-only)
 
 ### Protocol
+
 - **Separate data channels**: control (JSON) + data (binary) (ADR-0007)
 - **Reliable channels**: no `maxRetransmits: 0` (ADR-0025)
 - **SCTP backpressure**: `bufferedAmountLowThreshold: 1 MiB` + Promise-returning `sendDataMessage` (ADR-0026)
@@ -105,6 +110,7 @@ This directory contains the architecture documentation for the Local File Share 
 - **QR library**: zxing-js/browser (ADR-0016)
 
 ### State Management
+
 - **Connection states**: NEW, CONNECTED, TRANSFERRING, FAILED, CLOSED (ADR-0010)
 - **File states**: PENDING, QUEUED, TRANSFERRING, COMPLETED, REJECTED, FAILED, CANCELLED (ADR-0011)
 - **State group**: Active (PENDING/QUEUED/TRANSFERRING) vs Done (terminal) for the Files tab chips (ADR-0011, ADR-0027)
@@ -112,63 +118,26 @@ This directory contains the architecture documentation for the Local File Share 
 - **Cleanup**: Discard queued files on close (ADR-0018)
 
 ### Files Tab (M2 redesign, ADR-0027)
+
 - **Unified list** of send + receive, with **All / Active / Done** filter chips
 - **No sender progress bar** (sender has no real-time progress signal)
 - **No `Download` button** on completed receives (auto-downloaded; chunk data not persisted)
 - **FAB anchored to the panel**, not the viewport
 - **Mobile-first** single column; same layout on both peers
 
+### Connection Tab (M2 redesign, ADR-0028)
+
+- **3-dot progress bar**: Offer → Answer → Connected
+- **State-driven panes** (`currentStep` × `connectionRole`), no modal
+- **Step 3 dot is green and heartbeating** when active (signals "we are live"; `prefers-reduced-motion` disables the animation)
+- **Step 2 initiator camera is always-on** while the pane is visible (auto-started/stopped by `updateUI` from `wantAnswerScanner`); no button to tap
+- **Manual advance** for the initiator's "Proceed to scan Answer QR from other device" button (gives joiner a guaranteed scan window)
+- **Step 3 device cards** with "You" badge on the local device; peer is a generic placeholder (no new control messages)
+- **No in-app disconnect** — the user disconnects by reloading the page (the step-3 view shows a hint)
+- **Silent FAILED transition** on peer-disconnect: the surviving device snaps back to step 1 immediately, no "Connection failed" / "ICE negotiation failed" dialogs (would be asymmetric with the other device's clean reload)
+- **SOLID `disconnect`** as a composition root: `disconnect = teardownConnection + resetToIdle`. Kept in the module for tests and code organization; not on `window`
+- **Denser QR codes**: `MARGIN: 2` zxing hint + 400 px default + `0.25rem` CSS padding, so the modules fill more of the visible area
+
 ### Download
+
 - **Batch processing** for memory efficiency (ADR-0008)
-
-## Branch Changelog
-
-Each branch that lands in `master` gets a brief changelog entry here so that
-reviewers can see at a glance what changed, what bug was fixed, and which
-ADRs/PRD sections were added or updated.
-
-### `feature/fix-file-transfer` (in progress) — fork point `4db9845`
-
-7 commits, ~2.2k lines added, 198 regression tests passing. The branch fixes
-every major file-transfer bug surfaced during end-to-end testing and lands
-the M2 Files tab redesign.
-
-| Commit | One-line |
-|--------|----------|
-| `first fix`   | Wiring fixes: UI events on both peers, files reaching 98 % and stalling, image corruption from dropped chunks |
-| `second fix`  | First file works; second file stuck at `QUEUED`, duplicate chunks, missing `isLast=1` |
-| `third fix`   | Multiple files advance; receiver no longer sticks at 98 %; `isLast` still missing |
-| `fourth fix`  | Every chunk now carries `isLast`; large files (> 2412 chunks ≈ 19 MB) still lose the data channel mid-send |
-| `fifth fix`   | SCTP backpressure; 500 MB transfers complete end-to-end (bidirectional still broken) |
-| `sixth fix`   | Bidirectional flow: `sendFileAccept` no longer leaks the received file into the send queue |
-| `seventh fix` | Files tab M2 redesign: unified list, filter chips, no sender progress bar, no `Download` button, FAB anchored to panel |
-
-**Bug-by-bug root causes** (for the record):
-
-1. **98 % stuck on first file / image corruption** — both data channels were
-   created with `maxRetransmits: 0` → unreliable mode → silent chunk drops.
-   Fixed in `fourth fix`; see ADR-0025.
-2. **Second file stuck at `QUEUED`** — `handleFileAccept` added the file to
-   *both* `currentFile` and `queue`. Fixed in `second fix`; see ADR-0009.
-3. **No `isLast=1` chunk ever observed** — `data[40] === 1` on an
-   `ArrayBuffer` is always `false` (the byte-indexed read returns
-   `undefined` for `ArrayBuffer`s; you have to go through a `Uint8Array`
-   view). Fixed in `fourth fix`; see ADR-0025.
-4. **Connection silently lost on files > ~19 MB** — SCTP send buffer
-   overflow, data channel closes without an error event. Fixed in `fifth
-   fix`; see ADR-0026.
-5. **Bidirectional: A→B works, then B→A stuck at `QUEUED`** — `sendFileAccept`
-   (the receiver-side path) was assigning the just-received file to
-   `queueManager.currentFile`. The receive then ran to `COMPLETED` but never
-   released the slot, so the next user-initiated send was pushed behind
-   a phantom current. Fixed in `sixth fix`; see ADR-0009.
-6. **FAB floating over the Connection panel on mobile** —
-   `position: sticky; bottom: 0.5rem;` resolved against `<html>`, not the
-   Files panel. Fixed structurally in `seventh fix`; see ADR-0027.
-
-**New / changed artefacts:**
-
-- ADRs: `0025` (FILE_RECEIVED + NACK), `0026` (SCTP backpressure), `0027` (Unified Files Tab)
-- ADRs updated: `0009` (queue is SEND-only), `0011` (`terminatedAt`, `getStateGroup()`)
-- Context updated: `0001` (Active / Done file, Filter chip, SCTP backpressure, Ack timeout, NACK round)
-- Tests: `tests/regression/regression.test.js` grew from ~13 tests to **198** (added ~18.5 kB of regression coverage for the protocol, queue, and UI)
