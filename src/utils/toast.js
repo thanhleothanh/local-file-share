@@ -4,7 +4,7 @@
  * messages. Replaces inline tab alerts to avoid layout shifting.
  */
 
-const TOAST_DURATION_MS = 2000;
+const TOAST_DURATION_MS = 3000;
 const FADE_MS = 200;
 const MOBILE_BREAKPOINT = 768;
 

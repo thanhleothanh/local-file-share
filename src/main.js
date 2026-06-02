@@ -280,7 +280,9 @@ function renderFileRow(file) {
       : 0
     : 0;
 
-  const actionsHtml = renderFileActions(file);
+  // Disable action buttons on other files when one is actively transferring
+  const disableActions = hasActiveTransfer() && file.state !== FileState.TRANSFERRING;
+  const actionsHtml = renderFileActions(file, disableActions);
 
   // Escape user-controlled strings (filename etc.) since this is rendered
   // as innerHTML.
@@ -352,35 +354,46 @@ function statusLabel(file) {
 }
 
 /**
+ * Check if there is any file currently in TRANSFERRING state
+ * @returns {boolean}
+ */
+function hasActiveTransfer() {
+  const allFiles = fileTransferManager.getAllFiles();
+  return allFiles.some(file => file.state === FileState.TRANSFERRING);
+}
+
+/**
  * Per-row action buttons. We only show what's actually actionable on
  * the user's side. Accept/Reject only on offers the user can decide on,
  * Remove only on files the user is the sender of, Retry only on failed
  * sends, Download/Open on completed receives.
  * @param {Object} file
+ * @param {boolean} disableActions - Whether to disable action buttons (true when another file is actively transferring)
  * @returns {string} HTML
  */
-function renderFileActions(file) {
+function renderFileActions(file, disableActions = false) {
   const isSend = file.direction === 'send';
   const buttons = [];
+  const disabled = disableActions ? ' disabled' : '';
 
   if (file.state === FileState.PENDING && !isSend) {
     buttons.push(
-      `<button class="btn btn-success" onclick="acceptFileOffer('${file.fileId}')">Accept</button>`,
+      `<button class="btn btn-success" onclick="acceptFileOffer('${file.fileId}')"${disabled}>Accept</button>`,
     );
     buttons.push(
-      `<button class="btn btn-danger" onclick="rejectFileOffer('${file.fileId}')">Reject</button>`,
+      `<button class="btn btn-danger" onclick="rejectFileOffer('${file.fileId}')"${disabled}>Reject</button>`,
     );
   } else if (file.state === FileState.QUEUED && isSend) {
     buttons.push(
-      `<button class="btn btn-danger" onclick="cancelQueuedFile('${file.fileId}')">Remove</button>`,
+      `<button class="btn btn-danger" onclick="cancelQueuedFile('${file.fileId}')"${disabled}>Remove</button>`,
     );
   } else if (file.state === FileState.PENDING && isSend) {
     buttons.push(
-      `<button class="btn btn-danger" onclick="cancelFileOffer('${file.fileId}')">Cancel</button>`,
+      `<button class="btn btn-danger" onclick="cancelFileOffer('${file.fileId}')"${disabled}>Cancel</button>`,
     );
   } else if (file.state === FileState.FAILED && isSend) {
     buttons.push(
-      `<button class="btn btn-primary" onclick="retryFile('${file.fileId}')">Retry</button>`,
+      `<button class="btn btn-primary" onclick="retryFile('${file.fileId}')"${disabled}>Retry</button>`,
     );
   }
   // No button for COMPLETED receives: the file is auto-downloaded on
@@ -458,17 +471,37 @@ async function createConnection() {
       await webrtcManager.close();
     }
 
+    // Immediately show loading state
+    connectionRole = 'initiator';
+    currentStep = 1;
+    offerQRData = null;
+    updateUI();
+    
+    // Show loading, hide QR content
+    const offerQRLoading = document.getElementById('offerQRLoading');
+    const offerQRContent = document.getElementById('offerQRContent');
+    
+    if (offerQRLoading) offerQRLoading.style.display = 'block';
+    if (offerQRContent) offerQRContent.hidden = true;
+
     const result = await webrtcManager.generateOfferQR();
     offerQRData = result.qrData;
     currentScanMode = null;
-    connectionRole = 'initiator';
-    currentStep = 1;
 
     await qrHandler.renderQRCodeToCanvas(offerQRData, offerQRCanvas);
+    
+    // Hide loading, show QR content
+    if (offerQRLoading) offerQRLoading.style.display = 'none';
+    if (offerQRContent) offerQRContent.hidden = false;
+    
     updateUI();
   } catch (error) {
     console.error('Failed to create connection:', error);
     showToast('Failed to create connection: ' + error.message);
+    // Hide loading on error
+    const offerQRLoading = document.getElementById('offerQRLoading');
+    if (offerQRLoading) offerQRLoading.style.display = 'none';
+    resetToIdle();
   }
 }
 
@@ -661,11 +694,27 @@ function goToStep2FromInitiator() {
 async function handleQRScanResult(qrData, mode) {
   try {
     if (qrData.type === 'OFFER' && mode === 'OFFER') {
-      const result = await webrtcManager.processOfferQR(qrData);
-      currentScanMode = 'OFFER';
+      // Immediately show loading state for step 2
       connectionRole = 'joiner';
       currentStep = 2;
+      updateUI();
+      
+      // Show loading, hide QR content
+      const answerQRLoading = document.getElementById('answerQRLoading');
+      const answerQRContent = document.getElementById('answerQRContent');
+      
+      if (answerQRLoading) answerQRLoading.style.display = 'block';
+      if (answerQRContent) answerQRContent.hidden = true;
+
+      const result = await webrtcManager.processOfferQR(qrData);
+      currentScanMode = 'OFFER';
+
       await qrHandler.renderQRCodeToCanvas(result.qrData, answerQRCanvas);
+      
+      // Hide loading, show QR content
+      if (answerQRLoading) answerQRLoading.style.display = 'none';
+      if (answerQRContent) answerQRContent.hidden = false;
+      
       // Intentionally no "Offer received!" success alert here — the
       // step 1 -> step 2 transition with the answer QR appearing is
       // the signal. A green dialog here would be redundant with the
@@ -686,6 +735,9 @@ async function handleQRScanResult(qrData, mode) {
     console.error('Failed to process QR code:', error);
     qrHandler.stopScanning();
     showToast('Failed to process QR code: ' + error.message);
+    // Hide loading on error
+    const answerQRLoading = document.getElementById('answerQRLoading');
+    if (answerQRLoading) answerQRLoading.style.display = 'none';
     updateUI();
   }
 }
