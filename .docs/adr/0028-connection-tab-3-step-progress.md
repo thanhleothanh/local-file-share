@@ -1,6 +1,6 @@
 # 28. Connection Tab: 3-Step Dot Progress with State-Driven Panes
 
-**Status**: Accepted
+**Status**: Superseded by [ADR-0030](./0030-websocket-signaling-server.md)
 **Date**: 2026-06-02
 
 ## Context

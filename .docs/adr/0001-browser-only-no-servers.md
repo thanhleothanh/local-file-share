@@ -1,6 +1,6 @@
 # 1. Browser-Only with No External Servers
 
-**Status**: Accepted  
+**Status**: Superseded by [ADR-0030](./0030-websocket-signaling-server.md)  
 **Date**: 2026-05-31
 
 ## Context

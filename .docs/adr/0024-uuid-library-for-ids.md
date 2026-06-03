@@ -1,6 +1,6 @@
 # 24. UUID Library for Unique Identifiers
 
-**Status**: Accepted  
+**Status**: Superseded by [ADR-0031](./0031-remove-qr-code-infrastructure.md)  
 **Date**: 2026-05-31
 
 ## Context

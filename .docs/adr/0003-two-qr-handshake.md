@@ -1,6 +1,6 @@
 # 3. Two-QR Code Handshake for Connection Establishment
 
-**Status**: Accepted  
+**Status**: Superseded by [ADR-0030](./0030-websocket-signaling-server.md)  
 **Date**: 2026-05-31
 
 ## Context
