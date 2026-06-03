@@ -1,4 +1,4 @@
-# 11. File State Machine
+# 8. File State Machine
 
 **Status**: Accepted  
 **Date**: 2026-05-31
@@ -29,8 +29,8 @@ Adopt a **7-state file state machine**:
 - PENDING → CANCELLED: Sender cancels
 - QUEUED → TRANSFERRING: Current TRANSFERRING file completes
 - QUEUED → CANCELLED: Sender cancels
-- TRANSFERRING → COMPLETED: All chunks received (see ADR-0025 for the FILE_RECEIVED ack gate)
-- TRANSFERRING → FAILED: Transfer error (fail-fast) or NACK rounds exhausted (see ADR-0025)
+- TRANSFERRING → COMPLETED: All chunks received (see ADR-0016 for the FILE_RECEIVED ack gate)
+- TRANSFERRING → FAILED: Transfer error (fail-fast) or NACK rounds exhausted (see ADR-0016)
 
 **Queue Logic:**
 
@@ -39,7 +39,7 @@ Adopt a **7-state file state machine**:
 
 **Cleanup:**
 
-- COMPLETED: chunk data is held in the assembled `ArrayBuffer` only, and the browser's save dialog is triggered immediately on transition (see ADR-0027). No `Download` button is shown because the data is not re-fetchable.
+- COMPLETED: On the File System Access API path, the file is already on disk — no further action needed. On the IndexedDB fallback path, chunk data is held in the assembled `ArrayBuffer` and the browser's save dialog is triggered immediately on transition. No `Download` button is shown because the data is not re-fetchable.
 - All others: Delete from IndexedDB on connection close
 
 ## Consequences

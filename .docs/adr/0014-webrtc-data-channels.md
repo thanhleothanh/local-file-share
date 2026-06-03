@@ -1,4 +1,4 @@
-# 20. WebRTC Data Channels for Direct P2P Communication
+# 14. WebRTC Data Channels for Direct P2P Communication
 
 **Status**: Accepted  
 **Date**: 2026-05-31
@@ -33,9 +33,9 @@ We use **two separate data channels** per connection:
 - Bidirectional communication built-in
 
 **Negative:**
-- Requires signaling to establish connection (solved via QR codes in ADR-0003)
+- Requires signaling to establish connection (solved via WebSocket in ADR-0019)
 - ICE candidate gathering can be complex
-- Browser message size limit (~16KB) requires chunking our files (ADR-0015)
+- Browser message size limit (~16KB) requires chunking our files (ADR-0011)
 - NAT traversal complexity (mitigated by same-network assumption)
 
 ## Alternatives Considered
@@ -52,8 +52,7 @@ We use **two separate data channels** per connection:
 
 ## Related Decisions
 
-- Browser-only with no external servers (ADR-0001)
-- WebRTC for P2P file transfer (ADR-0002)
-- Two-QR handshake for signaling (ADR-0003)
-- Separate data channels for control and data (ADR-0007)
+- WebRTC for P2P file transfer (ADR-0001)
+- WebSocket Signaling Server (ADR-0019)
+- Separate data channels for control and data (ADR-0004)
 - Default ICE configuration works for local networks

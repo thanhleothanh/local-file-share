@@ -1,4 +1,4 @@
-# 13. Message Format: JSON + Binary
+# 9. Message Format: JSON + Binary
 
 **Status**: Accepted  
 **Date**: 2026-05-31
@@ -33,7 +33,7 @@ We need to transmit both control messages (file offers, accepts) and binary file
 
 **Example Data Message:**
 ```
-[36 bytes: fileId][4 bytes: index][1 byte: isLast][8192 bytes: chunk data]
+[36 bytes: fileId][4 bytes: index][1 byte: isLast][16384 bytes: chunk data]
 ```
 
 ## Consequences

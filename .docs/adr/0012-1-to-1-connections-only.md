@@ -1,4 +1,4 @@
-# 17. 1:1 Connections Only
+# 12. 1:1 Connections Only
 
 **Status**: Accepted  
 **Date**: 2026-05-31

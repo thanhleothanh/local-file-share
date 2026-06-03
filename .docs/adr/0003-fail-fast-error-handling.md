@@ -1,4 +1,4 @@
-# 6. Fail-Fast Error Handling
+# 3. Fail-Fast Error Handling
 
 **Status**: Accepted  
 **Date**: 2026-05-31
@@ -14,11 +14,9 @@ Adopt a **fail-fast** approach: When any error occurs during a file transfer, im
 **Error types that trigger fail-fast:**
 - TRANSFER_FAILED: Chunk send/receive error
 - CONNECTION_LOST: WebRTC connection drops
-- INVALID_SECRET: QR secret mismatch
 - TIMEOUT: Idle timeout expires
 - USER_REJECTED: Receiver declines file
 - QUEUE_FULL: Queue limit exceeded
-- FILE_TOO_LARGE: File exceeds 500MB
 - CANCELLED: User cancels transfer
 
 ## Consequences

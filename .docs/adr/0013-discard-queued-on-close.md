@@ -1,4 +1,4 @@
-# 18. Discard Queued Files on Connection Close
+# 13. Discard Queued Files on Connection Close
 
 **Status**: Accepted  
 **Date**: 2026-05-31
@@ -12,11 +12,13 @@ When a connection closes (idle timeout, tab close, error), there may be files in
 **Discard all queued files** when the connection closes. Do not persist them for later transfer.
 
 **Implementation:**
-- On connection close: Delete entire IndexedDB store for that connection
+- On connection close: Send CLOSE message (best effort), close WebRTC connection
+- On the File System Access API path: no IndexedDB cleanup needed (files are on disk)
+- On the IndexedDB fallback path: delete the IndexedDB store for that connection
 - All PENDING, QUEUED, and TRANSFERRING files are discarded
 - User must re-offer files on next connection
 
-**Cleanup:**
+**Cleanup (IndexedDB fallback path):**
 ```javascript
 async function closeConnection(connId) {
   // Send CLOSE message (best effort)
@@ -25,14 +27,14 @@ async function closeConnection(connId) {
   // Close WebRTC
   peerConnection?.close();
   
-  // Delete IndexedDB
+  // Delete IndexedDB (fallback path only)
   await indexedDB.deleteDatabase(`fileShare-${connId}`);
   
   // Clear queue
   queue = { transferring: null, queued: [] };
   
   // Update state
-  setConnectionState(connId, "CLOSED");
+  setConnectionState(connId, "IDLE");
 }
 ```
 

@@ -1,4 +1,4 @@
-# 29. Toast Notifications
+# 24. Toast Notifications
 
 **Status**: Accepted
 **Date**: 2026-06-02
@@ -144,11 +144,13 @@ more — the inline alert divs in both tabs are removed.
 
 ## Related Decisions
 
-- Fail-Fast Error Handling (ADR-0006) — defines severity levels; the
+- Fail-Fast Error Handling (ADR-0003) — defines severity levels; the
   toast is the surface for HIGH and MEDIUM; CRITICAL closes the
   connection and surfaces differently
-- Unified Files Tab (ADR-0027) — the Files tab is now quiet
+- Unified Files Tab (ADR-0018) — the Files tab is now quiet
   (header + list, no inline alerts) so toasts do not compete with
   in-tab messaging
-- Connection Tab: 3-Step Dot Progress (ADR-0028) — same: the
-  Connection tab is now quiet so toasts do not compete
+- Connection Tab (ADR-0019) — the Connection tab is now quiet
+  so toasts do not compete
+- Lit Frontend Framework (ADR-0022) — toast is implemented as a
+  Lit component with Shadow DOM encapsulation

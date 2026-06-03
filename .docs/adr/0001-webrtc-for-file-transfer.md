@@ -1,11 +1,11 @@
-# 2. WebRTC for Peer-to-Peer File Transfer
+# 1. WebRTC for Peer-to-Peer File Transfer
 
 **Status**: Accepted  
 **Date**: 2026-05-31
 
 ## Context
 
-We need to transfer files directly between devices on a local network. The solution must work cross-platform (desktop and mobile browsers) and support large files (up to 500MB).
+We need to transfer files directly between devices on a local network. The solution must work cross-platform (desktop and mobile browsers) and support files of any size via streaming.
 
 ## Decision
 
@@ -24,7 +24,7 @@ Use **WebRTC data channels** for direct peer-to-peer file transfer. WebRTC provi
 - Works on local networks
 
 **Negative:**
-- Requires signaling to establish connection (handled via QR codes)
+- Requires signaling to establish connection (handled via WebSocket signaling server)
 - ICE candidate gathering can be complex
 - Browser message size limit (~16KB) requires chunking
 - NAT traversal complexity (mitigated by same-network assumption)

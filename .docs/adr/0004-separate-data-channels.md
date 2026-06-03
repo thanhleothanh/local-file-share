@@ -1,4 +1,4 @@
-# 7. Separate Data Channels for Control and Data
+# 4. Separate Data Channels for Control and Data
 
 **Status**: Accepted  
 **Date**: 2026-05-31

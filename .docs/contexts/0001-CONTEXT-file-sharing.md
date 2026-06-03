@@ -2,35 +2,37 @@
 
 ## Purpose
 
-The File Sharing context enables sending files between devices on the same local network without requiring internet access or external servers.
+The File Sharing context enables sending files between devices on the same local network. One device runs a Node.js signaling server; other devices connect via browser. WebRTC provides the peer-to-peer file transfer channel.
 
 ## Ubiquitous Language
 
 | Term | Definition |
 |------|------------|
-| **Connection** | A WebRTC peer-to-peer connection established between two devices via the 2-QR handshake process |
-| **Connection Secret** | A randomly generated string included in QR codes to authenticate the connection between two devices |
-| **Chunk** | A fixed-size (8KB) piece of file data transmitted over the WebRTC data channel |
-| **Queue** | A FIFO (First-In-First-Out) ordered list of files waiting to be sent over a connection. **Send-direction only** (ADR-0009): received files never enter the local send queue. |
-| **File Transfer** | The process of sending a file from one device to another, broken into chunks and transmitted over WebRTC |
-| **QR Handshake** | The two-QR code (ping-pong) process used to establish a WebRTC connection between two devices |
+| **Connection** | A WebRTC peer-to-peer connection established between two devices via the WebSocket signaling handshake |
+| **Chunk** | A fixed-size (16KB) piece of file data transmitted over the WebRTC data channel |
+| **Queue** | A FIFO ordered list of files waiting to be sent over a connection. **Send-direction only**: received files never enter the local send queue. |
+| **File Transfer** | The process of sending a file from one device to another, streamed in chunks over WebRTC |
+| **Signaling Server** | A Node.js + `ws` process that relays WebRTC signaling messages (SDP offers/answers, ICE candidates) between devices on the network |
 | **Control Channel** | A WebRTC data channel dedicated to JSON signaling messages (file offers, accepts, etc.) |
-| **Data Channel** | A WebRTC data channel dedicated to binary file chunk transmission. Reliable + ordered; subject to SCTP backpressure (ADR-0025, ADR-0026). |
-| **SCTP backpressure** | The mechanism by which a sender paces chunks so the data channel's send buffer never overflows. The sender awaits `bufferedamountlow` before pushing the next chunk; threshold is 1 MiB. (ADR-0026) |
-| **Ack timeout** | The 30-second window the sender waits for the receiver's `FILE_RECEIVED` after sending `TRANSFER_DONE`. If it expires, the file is marked `FAILED` and the queue advances. (ADR-0025) |
-| **NACK round** | One pass of "receiver reports missing indices, sender re-sends them from `sentChunkCache`". Bounded at `MAX_NACK_ROUNDS = 3`; after that the file is marked `FAILED`. (ADR-0025) |
-| **Files list** | The single scrolling list in the Files tab. Rows are sorted by `createdAt` descending (newest first) and include all states. There are no filter chips. (ADR-0027) |
-| **Send button** | The `+` button in the right end of the Files header. Visible only while the connection is `CONNECTED`; opens the OS file picker. (ADR-0027) |
-| **Files empty state** | The placeholder shown when the list has zero rows. Two variants: "Tap + to send your first file" when `CONNECTED`, "Connect a device to start sharing files" otherwise. (ADR-0027) |
-| **Connection step** | One of three states in the Connection tab's progress bar: **Offer**, **Answer**, **Connected**. Each step renders different content based on the device's `connectionRole`. |
-| **Connection role** | The device's position in the 2-QR handshake: **idle** (no choice yet), **initiator** (chose to create the offer, will scan the answer), or **joiner** (chose to scan the offer, will show the answer). Drawn from the same `connectionRole` JS state in `main.js`. |
-| **Step pane** | One of three `div.step-pane` containers in the Connection tab — `step1Pane`, `step2Pane`, `step3Pane`. Only one is visible at a time, switched by `renderStepContent()`. |
-| **Step dot** | One of three `div.step-dot` indicators in the dot progress bar. Styling: `active` (accent, current step), `completed` (success, past step), or default (bg-secondary, future step). |
-| **Device card** | A row in the step-3 connected view that shows one of the two devices in the connection. The local card has a `you` modifier (accent border + "You" badge); the peer card is a generic placeholder (peer device type is not exchanged over the control channel). |
-| **Step 1 idle** | The sub-state of `step1Pane` shown when `connectionRole === 'idle'`: two big choice cards — "Create Offer" and "Scan Offer". |
-| **Step 1 initiator** | The sub-state of `step1Pane` shown when `connectionRole === 'initiator'`: the device's offer QR plus a **"Proceed to scan Answer QR from other device"** button. The button is the manual advance trigger to step 2. |
-| **Step 1 joiner** | The sub-state of `step1Pane` shown when `connectionRole === 'joiner'`: live camera scanner pointed at the other device's QR. Auto-advances to step 2 on successful scan. |
-| **Step 2 initiator** | The sub-state of `step2Pane` shown when `connectionRole === 'initiator'`: a live camera scanner is **always on** while the pane is visible. The scanner is auto-started by `updateUI()` (via `wantAnswerScanner = currentStep === 2 && connectionRole === 'initiator'`) and auto-stopped on transition to step 3 or back to step 1. The user never has to tap a button to open or close the camera. |
-| **Step 2 joiner** | The sub-state of `step2Pane` shown when `connectionRole === 'joiner'`: the device's answer QR. |
-| **Manual step advance** | The pattern where the user explicitly advances to the next step (e.g., the initiator's "Proceed to scan Answer QR from other device" button), as opposed to auto-advance driven by an event. Used so the joiner has a guaranteed window to scan before the offer QR is replaced. |
-| **Disconnect** | Ending a session by reloading the page. The app deliberately has no in-app disconnect action — the step-3 view surfaces a "Reload the page to disconnect" hint. This avoids the user accidentally tearing down a working connection mid-transfer. A peer that reloads (or otherwise drops) triggers a silent `FAILED` transition on the other side: the surviving device's state listener calls `resetToIdle()` immediately and the WebRTC manager does **not** escalate `connectionstatechange`/`iceconnectionstatechange` failures to the user via `errorHandler`, because the other side's UI is the same (a clean reload) and there is nothing the user can do but start a new connection. |
+| **Data Channel** | A WebRTC data channel dedicated to binary file chunk transmission. Reliable + ordered; subject to SCTP backpressure. |
+| **SCTP Backpressure** | The mechanism by which a sender paces chunks so the data channel's send buffer never overflows. The sender awaits `bufferedamountlow` (1 MiB threshold) before pushing the next chunk. |
+| **Ack Timeout** | The 30-second window the sender waits for the receiver's `FILE_RECEIVED` after sending `TRANSFER_DONE`. If it expires, the file is marked `FAILED` and the queue advances. |
+| **NACK Round** | One pass of "receiver reports missing indices, sender re-sends them from `sentChunkCache`". Bounded at `MAX_NACK_ROUNDS = 3`; after that the file is marked `FAILED`. |
+| **Batch Offer** | When the sender picks multiple files, all are offered to the receiver at once. The receiver accepts/rejects each individually before any transfer begins. |
+| **Receiver-Driven Order** | The receiver chooses which file to accept next from the batch offer. Accept buttons are disabled while a transfer is in progress. |
+| **File System Access API** | A browser API (`showSaveFilePicker`) that allows streaming files directly to disk. Used as primary storage on Chromium browsers. No file size limit. |
+| **IndexedDB Fallback** | Browser storage mechanism used on Safari/iOS where File System Access API is not available. Chunks buffered in IndexedDB, assembled into Blob on completion. 1GB queue limit. |
+| **Streaming** | The process of sending file data chunk-by-chunk from sender to receiver without buffering the entire file in memory. Sender reads from disk, receiver writes to disk in real-time. |
+| **Device List** | The list of all connected devices shown in the Connection tab. Updated in real-time by the signaling server. |
+| **Device Name** | Auto-generated name from user agent (e.g., "Mobile #1", "Desktop #2"). Editable by the user, stored in localStorage. |
+| **Connection State** | The 3-state model: IDLE (no connection), CONNECTING (waiting for accept/reject), CONNECTED (WebRTC active). |
+| **File State** | The 7-state model: PENDING, QUEUED, TRANSFERRING, COMPLETED, REJECTED, FAILED, CANCELLED. |
+| **Idle Timer** | 10-minute timer that fires when no control/data channel messages are received. Transitions connection to IDLE. |
+| **Toast Notification** | A temporary message (success, error, info, warning) shown at the top of the screen. Auto-dismisses after 2 seconds. |
+
+## Key Relationships
+
+- **Signaling Server ↔ Devices**: WebSocket connection for signaling. Server maintains device list and tracks which devices are connected to each other.
+- **Device ↔ Device**: WebRTC peer connection (1:1 only). Two data channels: control (JSON) and data (binary chunks).
+- **File System Access API ↔ IndexedDB**: Mutually exclusive storage backends. Detected at runtime. FSA streams to disk (no limit), IndexedDB buffers in browser (1GB limit).
+- **Queue ↔ File State Machine**: Queue manages send-order. File state machine tracks individual file lifecycle. Only send-direction files enter the queue.

@@ -1,13 +1,13 @@
-# 26. SCTP Backpressure via `bufferedamountlow`
+# 17. SCTP Backpressure via `bufferedamountlow`
 
 **Status**: Accepted
 **Date**: 2026-06-01
 
 ## Context
 
-ADR-0025 removed `maxRetransmits: 0` from the data channel, which made delivery reliable but did not address the sender's send-side pacing. The WebRTC data channel sits on top of an SCTP stream with a finite send buffer. When the sender pushes chunks faster than the network can drain them, the buffer fills. Once the buffer is full, the data channel closes — and per the WebRTC spec this is a **silent close**: the `onclose` event fires but no error is surfaced, so the sender keeps writing into a dead channel and the receiver's `assembleFile` never sees all the chunks.
+ADR-0016 removed `maxRetransmits: 0` from the data channel, which made delivery reliable but did not address the sender's send-side pacing. The WebRTC data channel sits on top of an SCTP stream with a finite send buffer. When the sender pushes chunks faster than the network can drain them, the buffer fills. Once the buffer is full, the data channel closes — and per the WebRTC spec this is a **silent close**: the `onclose` event fires but no error is surfaced, so the sender keeps writing into a dead channel and the receiver's `assembleFile` never sees all the chunks.
 
-This bit us in practice on large files: at ~2412 chunks (≈ 19 MB at 8 KB each) the channel silently closed mid-send, the sender's `reader.onload` loop kept going, and the receiver was left with a half-assembled file. Reliability (ADR-0025) and chunk-integrity (the count-driven assembly in ADR-0025) cannot save a channel that has been killed underneath them.
+This bit us in practice on large files: at ~2412 chunks (≈ 38 MB at 16 KB each) the channel silently closed mid-send, the sender's `reader.onload` loop kept going, and the receiver was left with a half-assembled file. Reliability (ADR-0016) and chunk-integrity (the count-driven assembly in ADR-0016) cannot save a channel that has been killed underneath them.
 
 ## Decision
 
@@ -26,13 +26,15 @@ Apply **explicit application-level backpressure** on the data channel using the 
 ## Consequences
 
 **Positive:**
+
 - The SCTP buffer can no longer overflow, so the silent-close mid-transfer is no longer reachable through normal operation.
 - The sender naturally throttles to the receiver's drain rate — slow receivers cause the sender to slow down, fast ones run flat-out.
 - The 60 s safety timeout bounds the worst case if the receiver hangs or the network path breaks mid-send.
-- Backpressure composes with the reliability model from ADR-0025: dropped chunks are caught by NACK, channel overflow is caught by `bufferedamountlow`.
+- Backpressure composes with the reliability model from ADR-0016: dropped chunks are caught by NACK, channel overflow is caught by `bufferedamountlow`.
 - No external libraries, no custom framing — the WebRTC spec already provides the primitive.
 
 **Negative:**
+
 - `sendDataMessage` is no longer fire-and-forget; every call site has to be async-aware. The chunk sender and NACK retransmitter are, and the only other `data`-channel sender in the app is the control channel (no backpressure).
 - The 1 MiB threshold means up to 1 MiB of chunks can be "in flight" at any moment. For our worst case (500 MB file, 8 KB chunks) this is a 0.2 % overhead — negligible.
 - If the receiver stalls for 60 s the safety timer resolves and the sender pushes the next chunk into a still-full buffer. In practice the SCTP layer will then either drain (best case) or close the channel (in which case `handleFileReceived`'s 30 s ack timer will catch it and mark the file FAILED).
@@ -50,8 +52,8 @@ Apply **explicit application-level backpressure** on the data channel using the 
 
 ## Related Decisions
 
-- Reliable data channels (ADR-0025 / Data Channel Reliability) — backpressure complements reliability
-- Binary Header Format (ADR-0014) — chunk size
-- Chunk Size 8KB (ADR-0015) — chunk size
-- File State Machine (ADR-0011) — `FAILED` transition when the ack timer fires
-- 500MB File Limit (ADR-0005) — caps the in-memory chunk cache and thus the worst-case backpressure wait
+- Reliable data channels (ADR-0016) — backpressure complements reliability
+- Binary Header Format (ADR-0010) — chunk header structure
+- Chunk Size 16KB (ADR-0011) — chunk size
+- File State Machine (ADR-0008) — `FAILED` transition when the ack timer fires
+- No File Size Limit / Streaming (ADR-0002) — streaming architecture with per-chunk ACK keeps the sender cache bounded

@@ -1,4 +1,4 @@
-# 14. Binary Header Format for Data Channel
+# 10. Binary Header Format for Data Channel
 
 **Status**: Accepted  
 **Date**: 2026-05-31
@@ -46,7 +46,7 @@ dataChannel.onmessage = (event) => {
 - Clear separation of metadata and data
 
 **Negative:**
-- 41 bytes overhead per chunk (~0.5% for 8KB chunks)
+- 41 bytes overhead per chunk (~0.25% for 16KB chunks)
 - Need binary parsing code
 - Malformed messages < 41 bytes are ignored (fail silently)
 

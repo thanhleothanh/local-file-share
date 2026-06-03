@@ -1,11 +1,11 @@
-# 8. Batch Processing for File Downloads
+# 5. Batch Processing for File Downloads
 
 **Status**: Accepted  
 **Date**: 2026-05-31
 
 ## Context
 
-When downloading a large file (up to 500MB) from IndexedDB, we need to concatenate thousands of 8KB chunks into a single Blob for the browser's download mechanism. Loading all chunks at once would cause a memory spike equal to the file size.
+When downloading a large file from IndexedDB (fallback storage on Safari/iOS), we need to concatenate thousands of 16KB chunks into a single Blob for the browser's download mechanism. Loading all chunks at once would cause a memory spike equal to the file size. This ADR applies only to the IndexedDB fallback path — the primary path (File System Access API) streams directly to disk without batch processing.
 
 ## Decision
 
