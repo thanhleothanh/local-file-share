@@ -4,6 +4,8 @@ import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
 import { SCTPBackpressure } from '../webrtc/SCTPBackpressure.js';
 import { FileSender, FileReceiver, FileSystemAccessWriter } from '../files/index.js';
+import { NackHandler, createChunkCache, MAX_NACK_ROUNDS, CHUNK_SIZE, type ChunkCache, decodeChunk } from '@lfs/shared';
+import type { ChunkRequestNackMessage, TransferDoneMessage, DecodedChunk } from '@lfs/shared';
 
 export interface ConnectionViewModelState {
   devices: readonly DeviceDescriptor[];
@@ -45,6 +47,8 @@ export class ConnectionViewModel {
   private fileReceiver: FileReceiver | null = null;
   private fsaWriter: FileSystemAccessWriter | null = null;
   private controlChannel: RTCDataChannel | null = null;
+  private chunkCache: ChunkCache | null = null;
+  private nackHandler: NackHandler | null = null;
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -320,19 +324,20 @@ export class ConnectionViewModel {
   /**
    * Send a file to the connected device.
    * Only works when in CONNECTED state and data channels are open.
+   * Generates a fileId, sends all chunks, then sends TRANSFER_DONE.
    */
-  async sendFile(file: File): Promise<void> {
+  async sendFile(file: File, fileId: string = this.generateFileId()): Promise<void> {
     if (this.state.connectionState !== ConnectionState.CONNECTED || !this.fileSender) {
       throw new Error('Cannot send file: not connected or file sender not initialized');
     }
 
-    this.loggerFor('FileSender').info('sending file', { name: file.name, size: file.size });
+    this.loggerFor('FileSender').info('sending file', { name: file.name, size: file.size, fileId });
 
     // Initialize progress state with file name
     this.update((prev) => ({
       ...prev,
       fileProgress: {
-        fileId: '',
+        fileId,
         fileName: file.name,
         bytesTransferred: 0,
         totalBytes: file.size,
@@ -341,14 +346,59 @@ export class ConnectionViewModel {
       },
     }));
 
-    await this.fileSender.sendFile(file);
-    this.loggerFor('FileSender').info('file sent successfully', { name: file.name });
+    // Generate a UUID for the file if not provided
+    const actualFileId = fileId || this.generateFileId();
+
+    // Calculate total chunks
+    const chunkCount = Math.ceil(file.size / 16384);
+
+    await this.fileSender.sendFile(file, actualFileId);
+    this.loggerFor('FileSender').info('file chunks sent', { name: file.name, fileId: actualFileId, chunks: chunkCount });
+
+    // Send TRANSFER_DONE message
+    this.sendTransferDone(actualFileId, chunkCount);
 
     // Clear progress after completion
     this.update((prev) => ({
       ...prev,
       fileProgress: null,
     }));
+  }
+
+  /**
+   * Send TRANSFER_DONE message on the control channel.
+   */
+  private sendTransferDone(fileId: string, totalChunks: number): void {
+    if (!this.controlChannel || this.controlChannel.readyState !== 'open') {
+      console.warn('[ConnectionViewModel] Cannot send TRANSFER_DONE: control channel not open');
+      return;
+    }
+
+    const message: TransferDoneMessage = {
+      type: 'TRANSFER_DONE',
+      from: this.state.localDeviceId,
+      data: { fileId, totalChunks },
+    };
+
+    try {
+      this.controlChannel.send(JSON.stringify(message));
+      this.loggerFor('FileSender').info('sent TRANSFER_DONE', { fileId, totalChunks });
+      console.info('[FileSender] sent TRANSFER_DONE', { fileId, totalChunks });
+    } catch (error) {
+      this.loggerFor('FileSender').warn('Failed to send TRANSFER_DONE', { error });
+    }
+  }
+
+  /**
+   * Generate a unique file ID.
+   */
+  private generateFileId(): string {
+    // Simple UUID v4 generation
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
   }
 
   /**
@@ -453,6 +503,21 @@ export class ConnectionViewModel {
     // that waits for the buffer to drain below the threshold
     const wrappedDataChannel = SCTPBackpressure.wrap(dataChannel);
 
+    // Create chunk cache for the sender (to support retransmission)
+    this.chunkCache = createChunkCache();
+
+    // Create NackHandler for handling CHUNK_REQUEST_NACK messages
+    this.nackHandler = new NackHandler(this.chunkCache, {
+      sendChunk: async (fileId: string, index: number, data: ArrayBuffer) => {
+        // Retransmit the chunk on the data channel
+        if (wrappedDataChannel.readyState === 'open') {
+          await wrappedDataChannel.send(data);
+        } else {
+          throw new Error('Data channel not open for retransmission');
+        }
+      },
+    });
+
     // Create file sender that sends chunks via the wrapped data channel
     this.fileSender = new FileSender({
       sendChunk: async (chunk: ArrayBuffer) => {
@@ -463,6 +528,7 @@ export class ConnectionViewModel {
           throw new Error('Data channel not open');
         }
       },
+      cache: this.chunkCache,
     });
 
     // Set up sender progress listener
@@ -505,6 +571,7 @@ export class ConnectionViewModel {
     // The ACK callback sends CHUNK_ACK messages on the control channel
     this.fileReceiver = new FileReceiver({
       writer: this.fsaWriter ?? undefined,
+      buffer: undefined, // Use default buffer
       sendChunkAck: (fileId: string, index: number) => {
         // Send CHUNK_ACK message on the control channel
         const ackMessage = JSON.stringify({
@@ -517,6 +584,38 @@ export class ConnectionViewModel {
             this.controlChannel.send(ackMessage);
           } catch (error) {
             this.loggerFor('FileReceiver').warn('Failed to send CHUNK_ACK', { error });
+          }
+        }
+      },
+      sendChunkNack: (fileId: string, missingIndices: number[], round: number) => {
+        // Send CHUNK_REQUEST_NACK message on the control channel
+        const nackMessage: ChunkRequestNackMessage = {
+          type: 'CHUNK_REQUEST_NACK',
+          from: this.state.localDeviceId,
+          data: { fileId, missingIndices, round },
+        };
+        if (this.controlChannel && this.controlChannel.readyState === 'open') {
+          try {
+            this.controlChannel.send(JSON.stringify(nackMessage));
+            this.loggerFor('FileReceiver').info('sent CHUNK_REQUEST_NACK', { fileId, missingIndices, round });
+          } catch (error) {
+            this.loggerFor('FileReceiver').warn('Failed to send CHUNK_REQUEST_NACK', { error });
+          }
+        }
+      },
+      sendFileReceived: (fileId: string, totalChunks: number) => {
+        // Send FILE_RECEIVED message on the control channel
+        const receivedMessage = {
+          type: 'FILE_RECEIVED',
+          from: this.state.localDeviceId,
+          data: { fileId, totalChunks, expectedHash: '' },
+        };
+        if (this.controlChannel && this.controlChannel.readyState === 'open') {
+          try {
+            this.controlChannel.send(JSON.stringify(receivedMessage));
+            this.loggerFor('FileReceiver').info('sent FILE_RECEIVED', { fileId, totalChunks });
+          } catch (error) {
+            this.loggerFor('FileReceiver').warn('Failed to send FILE_RECEIVED', { error });
           }
         }
       },
@@ -577,19 +676,76 @@ export class ConnectionViewModel {
   }
 
   /**
-   * Handle an incoming control message (e.g., CHUNK_ACK).
+   * Handle an incoming control message (e.g., CHUNK_ACK, CHUNK_REQUEST_NACK, TRANSFER_DONE).
    */
   private handleControlMessage(message: string): void {
     try {
       const parsed = JSON.parse(message) as { type: string; from: string; data?: unknown };
 
-      if (parsed.type === 'CHUNK_ACK' && this.fileSender) {
-        const data = parsed.data as { fileId: string; index: number } | undefined;
-        if (data?.fileId && typeof data.index === 'number') {
-          this.fileSender.handleChunkAck(data.fileId, data.index);
-        }
+      switch (parsed.type) {
+        case 'CHUNK_ACK':
+          if (this.fileSender) {
+            const data = parsed.data as { fileId: string; index: number } | undefined;
+            if (data?.fileId && typeof data.index === 'number') {
+              this.fileSender.handleChunkAck(data.fileId, data.index);
+            }
+          }
+          break;
+
+        case 'TRANSFER_DONE':
+          if (this.fileReceiver) {
+            const data = parsed.data as { fileId: string; totalChunks: number } | undefined;
+            if (data?.fileId && typeof data.totalChunks === 'number') {
+              this.loggerFor('FileReceiver').info('received TRANSFER_DONE', { fileId: data.fileId, totalChunks: data.totalChunks });
+              console.info('[FileReceiver] received TRANSFER_DONE', { fileId: data.fileId, totalChunks: data.totalChunks });
+              // Handle the transfer done by checking integrity
+              void this.fileReceiver.handleTransferDone(data.fileId, data.totalChunks);
+            }
+          }
+          break;
+
+        case 'CHUNK_REQUEST_NACK':
+          if (this.nackHandler) {
+            const data = parsed.data as { fileId: string; missingIndices: number[]; round: number } | undefined;
+            if (data?.fileId && Array.isArray(data.missingIndices) && typeof data.round === 'number') {
+              this.loggerFor('NackHandler').info('received CHUNK_REQUEST_NACK', {
+                fileId: data.fileId,
+                missingIndices: data.missingIndices,
+                round: data.round,
+              });
+              console.info('[NackHandler] received CHUNK_REQUEST_NACK', {
+                fileId: data.fileId,
+                missingIndices: data.missingIndices,
+                round: data.round,
+              });
+              // Handle the NACK by retransmitting missing chunks
+              const nackMessage: ChunkRequestNackMessage = {
+                type: 'CHUNK_REQUEST_NACK',
+                from: parsed.from,
+                data: { fileId: data.fileId, missingIndices: data.missingIndices, round: data.round },
+              };
+              void this.nackHandler.handle(nackMessage);
+            }
+          }
+          break;
+
+        case 'FILE_RECEIVED':
+          this.loggerFor('FileSender').info('received FILE_RECEIVED', parsed.data);
+          console.info('[FileSender] received FILE_RECEIVED', parsed.data);
+          // File transfer completed successfully
+          // Clean up the cache for this file
+          if (this.fileSender && parsed.data && typeof parsed.data === 'object') {
+            const data = parsed.data as { fileId: string };
+            if (data.fileId) {
+              this.fileSender.deleteFile(data.fileId);
+            }
+          }
+          break;
+
+        default:
+          // Other control message types can be handled here
+          break;
       }
-      // Other control message types will be handled in future slices
     } catch (error) {
       this.loggerFor('Control').warn('Failed to parse control message', { error, message });
     }
@@ -599,8 +755,8 @@ export class ConnectionViewModel {
    * Handle an incoming chunk from the data channel.
    * The chunk format is: [41-byte header][chunk data]
    * The header contains: fileId (36 bytes), index (4 bytes), isLast (1 byte)
-   * But we also need fileName and totalBytes which should come from FILE_OFFER message.
-   * For now, we use generic values as the FILE_OFFER protocol is not yet implemented.
+   * For now, we use a file registry to track file metadata (fileName, totalBytes, totalChunks)
+   * which should come from FILE_OFFER message in a real implementation.
    */
   private handleIncomingChunk(rawChunk: ArrayBuffer): void {
     if (!this.fileReceiver) {
@@ -608,15 +764,47 @@ export class ConnectionViewModel {
       return;
     }
 
-    // For now, we use generic values
-    // In a real implementation, these would come from the FILE_OFFER message
-    // which is sent before the actual chunks
-    const fileId = 'test-file';
-    const fileName = 'test.bin';
-    const totalBytes = 102400; // 100 KB
+    // Decode the chunk to get the fileId from the header
+    try {
+      const decoded: DecodedChunk = decodeChunk(rawChunk);
+      const fileId = decoded.fileId;
 
-    // Use the async version
-    void this.fileReceiver.handleChunk(fileId, fileName, totalBytes, rawChunk);
+      // For now, use generic values for fileName and totalBytes
+      // In a real implementation, these would come from FILE_OFFER message
+      // We track file metadata in a registry
+      const fileMetadata = this.getOrCreateFileMetadata(fileId);
+
+      // Use the async version with totalChunks
+      void this.fileReceiver.handleChunk(
+        fileId,
+        fileMetadata.fileName,
+        fileMetadata.totalBytes,
+        rawChunk,
+        fileMetadata.totalChunks,
+      );
+    } catch (error) {
+      this.loggerFor('FileReceiver').warn('Failed to decode chunk header', { error });
+    }
+  }
+
+  /**
+   * Simple file metadata registry for tracking file information.
+   * In a real implementation, this would be populated by FILE_OFFER messages.
+   */
+  private readonly fileMetadataRegistry: Map<string, { fileName: string; totalBytes: number; totalChunks: number }> = new Map();
+
+  private getOrCreateFileMetadata(fileId: string): { fileName: string; totalBytes: number; totalChunks: number } {
+    // For now, create generic metadata for testing
+    // In a real implementation, this would be set by FILE_OFFER
+    if (!this.fileMetadataRegistry.has(fileId)) {
+      // Generate deterministic metadata based on fileId for testing
+      this.fileMetadataRegistry.set(fileId, {
+        fileName: `file-${fileId.slice(0, 8)}.bin`,
+        totalBytes: 102400, // 100 KB
+        totalChunks: 10, // 10 chunks of 10KB each
+      });
+    }
+    return this.fileMetadataRegistry.get(fileId)!;
   }
 
   /**
@@ -635,7 +823,19 @@ export class ConnectionViewModel {
       }
       this.fsaWriter = null;
     }
-    this.fileSender = null;
+    if (this.fileSender) {
+      // Clean up all files in the cache
+      // Note: In a real implementation, we might want to keep the cache
+      // for ongoing transfers, but for now we clear everything on cleanup
+      this.fileSender = null;
+    }
+    if (this.chunkCache) {
+      // Clear all cached chunks
+      // Note: This is a simple implementation; a more sophisticated one
+      // might only clear completed/failed file chunks
+      this.chunkCache = null;
+    }
+    this.nackHandler = null;
   }
 
   /**

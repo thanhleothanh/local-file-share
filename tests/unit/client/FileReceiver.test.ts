@@ -286,4 +286,181 @@ describe('FileReceiver', () => {
       expect(receivedIndices).toEqual(Array.from({ length: 100 }, (_, i) => i));
     });
   });
+
+  describe('TRANSFER_DONE handling', () => {
+    it('sends FILE_RECEIVED when all chunks are present after TRANSFER_DONE', async () => {
+      const sentMessages: Array<{ type: string; fileId: string; totalChunks: number }> = [];
+      const receiver = new FileReceiver({
+        sendFileReceived: (fileId, totalChunks) => {
+          sentMessages.push({ type: 'FILE_RECEIVED', fileId, totalChunks });
+        },
+      });
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const chunkCount = 10;
+      const totalBytes = chunkCount * 1000;
+
+      // Send all 10 chunks
+      for (let index = 0; index < chunkCount; index++) {
+        const chunkData = new Uint8Array(1000);
+        const isLast = index === chunkCount - 1;
+        const encodedChunk = encodeChunk(fileId, index, isLast, chunkData);
+        await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+      }
+
+      // Now handle TRANSFER_DONE
+      const result = await receiver.handleTransferDone(fileId, chunkCount);
+
+      expect(result).toBe(true);
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].type).toBe('FILE_RECEIVED');
+      expect(sentMessages[0].fileId).toBe(fileId);
+      expect(sentMessages[0].totalChunks).toBe(chunkCount);
+    });
+
+    it('sends CHUNK_REQUEST_NACK when chunks are missing after TRANSFER_DONE', async () => {
+      const sentMessages: Array<{ type: string; fileId: string; missingIndices: number[]; round: number }> = [];
+      const receiver = new FileReceiver({
+        sendChunkNack: (fileId, missingIndices, round) => {
+          sentMessages.push({ type: 'CHUNK_REQUEST_NACK', fileId, missingIndices, round });
+        },
+      });
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const chunkCount = 10;
+      const totalBytes = chunkCount * 1000;
+
+      // Send only chunks 0, 2, 4, 6, 8 (missing 1, 3, 5, 7, 9)
+      for (const index of [0, 2, 4, 6, 8]) {
+        const chunkData = new Uint8Array(1000);
+        const isLast = false; // None are the last chunk
+        const encodedChunk = encodeChunk(fileId, index, isLast, chunkData);
+        await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+      }
+
+      // Now handle TRANSFER_DONE
+      const result = await receiver.handleTransferDone(fileId, chunkCount);
+
+      expect(result).toBe(false);
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].type).toBe('CHUNK_REQUEST_NACK');
+      expect(sentMessages[0].fileId).toBe(fileId);
+      expect(sentMessages[0].round).toBe(0);
+      // Missing indices should be 1, 3, 5, 7, 9
+      expect(sentMessages[0].missingIndices.sort((a, b) => a - b)).toEqual([1, 3, 5, 7, 9]);
+    });
+
+    it('increments round counter on subsequent TRANSFER_DONE calls with missing chunks', async () => {
+      const sentMessages: Array<{ type: string; round: number }> = [];
+      const receiver = new FileReceiver({
+        sendChunkNack: (fileId, missingIndices, round) => {
+          sentMessages.push({ type: 'CHUNK_REQUEST_NACK', round });
+        },
+      });
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const chunkCount = 10;
+      const totalBytes = chunkCount * 1000;
+
+      // Send only chunk 0
+      const chunkData = new Uint8Array(1000);
+      const encodedChunk = encodeChunk(fileId, 0, false, chunkData);
+      await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+
+      // First TRANSFER_DONE - should send NACK with round 0
+      await receiver.handleTransferDone(fileId, chunkCount);
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].round).toBe(0);
+
+      // Second TRANSFER_DONE - should send NACK with round 1
+      await receiver.handleTransferDone(fileId, chunkCount);
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1].round).toBe(1);
+    });
+
+    it('sends FILE_RECEIVED after chunks are retransmitted and complete', async () => {
+      const sentMessages: Array<{ type: string; fileId: string }> = [];
+      const receiver = new FileReceiver({
+        sendChunkNack: (fileId, missingIndices, round) => {
+          sentMessages.push({ type: 'CHUNK_REQUEST_NACK', fileId });
+        },
+        sendFileReceived: (fileId, totalChunks) => {
+          sentMessages.push({ type: 'FILE_RECEIVED', fileId });
+        },
+      });
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const chunkCount = 10;
+      const totalBytes = chunkCount * 1000;
+
+      // Send all chunks except 5
+      for (let index = 0; index < chunkCount; index++) {
+        if (index === 5) continue;
+        const chunkData = new Uint8Array(1000);
+        const isLast = false;
+        const encodedChunk = encodeChunk(fileId, index, isLast, chunkData);
+        await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+      }
+
+      // First TRANSFER_DONE - should send NACK
+      await receiver.handleTransferDone(fileId, chunkCount);
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].type).toBe('CHUNK_REQUEST_NACK');
+
+      // Simulate retransmission of chunk 5
+      const chunkData = new Uint8Array(1000);
+      const encodedChunk = encodeChunk(fileId, 5, false, chunkData);
+      await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+
+      // Second TRANSFER_DONE - should send FILE_RECEIVED
+      await receiver.handleTransferDone(fileId, chunkCount);
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1].type).toBe('FILE_RECEIVED');
+    });
+
+    it('uses ChunkBuffer for storage', async () => {
+      const receiver = new FileReceiver();
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const totalBytes = 1000;
+
+      // Send a chunk
+      const chunkData = new Uint8Array(1000);
+      const encodedChunk = encodeChunk(fileId, 0, true, chunkData);
+      await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+
+      // Verify the buffer is used
+      const buffer = receiver.getBuffer();
+      expect(buffer.has(fileId, 0)).toBe(true);
+      expect(buffer.getChunkCount(fileId)).toBe(1);
+    });
+
+    it('uses FileIntegrityChecker for integrity verification', async () => {
+      const receiver = new FileReceiver();
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const chunkCount = 5;
+      const totalBytes = chunkCount * 1000;
+
+      // Send all chunks
+      for (let index = 0; index < chunkCount; index++) {
+        const chunkData = new Uint8Array(1000);
+        const isLast = index === chunkCount - 1;
+        const encodedChunk = encodeChunk(fileId, index, isLast, chunkData);
+        await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+      }
+
+      // Get the integrity checker
+      const checker = receiver.getIntegrityChecker();
+      
+      // Check integrity
+      const result = checker.check(fileId, chunkCount);
+      expect(result.complete).toBe(true);
+      expect(result.missingIndices).toEqual([]);
+    });
+  });
 });
