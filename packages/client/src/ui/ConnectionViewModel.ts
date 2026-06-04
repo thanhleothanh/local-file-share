@@ -5,7 +5,7 @@ import { FileStateMachine } from '../files/FileStateMachine.js';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
 import { SCTPBackpressure } from '../webrtc/SCTPBackpressure.js';
-import { FileSender, FileReceiver, FileSystemAccessWriter, FileRegistry, FileQueue, type FileEntry } from '../files/index.js';
+import { FileSender, FileReceiver, FileSystemAccessWriter, FileRegistry, FileQueue, type FileEntry, StorageBackendFactory } from '../files/index.js';
 import { NackHandler, createChunkCache, CHUNK_SIZE, type ChunkCache, decodeChunk, FSA_QUEUE_FILE_COUNT_CAP, IDB_QUEUE_SIZE_CAP_BYTES } from '@lfs/shared';
 import type { ChunkRequestNackMessage, TransferDoneMessage, DecodedChunk } from '@lfs/shared';
 import { generateUuid } from '@lfs/shared';
@@ -369,26 +369,12 @@ export class ConnectionViewModel {
   }
 
   /**
-   * Detect which storage backend is available.
-   * Uses the same logic as StorageBackendFactory.
-   */
-  private detectStorageBackend(): 'fsa' | 'indexeddb' {
-    if ('showDirectoryPicker' in window) {
-      return 'fsa';
-    } else if ('indexedDB' in window) {
-      return 'indexeddb';
-    }
-    // Default to FSA if we can't determine
-    return 'fsa';
-  }
-
-  /**
    * Check if adding files would exceed the queue cap based on the current storage backend.
    * @param files - The files to check
    * @returns true if the files can be added, false if they would exceed the cap
    */
   private canAddFiles(files: File[]): { allowed: boolean; reason?: string } {
-    const backendKind = this.detectStorageBackend();
+    const backendKind = StorageBackendFactory.detect();
     
     if (backendKind === 'fsa') {
       // FSA: max 100 files in queue (including existing queued files)

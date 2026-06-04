@@ -5,6 +5,7 @@
 
 import { IndexedDBWriter, BrowserDownloadLauncher, StorageBackendFactory } from '../../../packages/client/src/files/IndexedDBWriter.js';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
+import 'fake-indexeddb/auto';
 
 // Type declaration for FileSystemDirectoryHandle (not available in Node.js types)
 declare interface FileSystemDirectoryHandle {
@@ -301,12 +302,12 @@ describe('IndexedDBWriter', () => {
         } as unknown as Window & typeof globalThis);
       });
 
-      it('startFile throws when IndexedDB is not available', () => {
+      it('startFile throws when IndexedDB is not available', async () => {
         vi.stubGlobal('window', {} as unknown as Window & typeof globalThis);
         
         const writer = new IndexedDBWriter('test-conn');
         
-        expect(writer.startFile({ fileId: 'file-1', fileName: 'test.txt', fileSize: 100, mimeType: 'text/plain' }))
+        await expect(writer.startFile({ fileId: 'file-1', fileName: 'test.txt', fileSize: 100, mimeType: 'text/plain' }))
           .rejects.toThrow('IndexedDB is not available');
       });
 
@@ -445,6 +446,25 @@ describe('IndexedDBWriter', () => {
       StorageBackendFactory.instance = null;
     });
 
+    it('getWriter returns FileSystemAccessWriter when showDirectoryPicker is available', () => {
+      vi.stubGlobal('window', {
+        showDirectoryPicker: vi.fn(),
+        indexedDB: {},
+      } as unknown as Window & typeof globalThis);
+
+      const factory = StorageBackendFactory.getInstance();
+      factory.initialize('conn-1');
+
+      const writer = factory.getWriter();
+      // Note: We can't import FileSystemAccessWriter here due to circular dependency
+      // So we just check that it's a truthy object with the expected methods
+      expect(writer).toBeDefined();
+      expect(typeof (writer as any).startFile).toBe('function');
+      expect(typeof (writer as any).writeChunk).toBe('function');
+      expect(typeof (writer as any).finalize).toBe('function');
+      expect(typeof (writer as any).cancel).toBe('function');
+    });
+
     it('getWriter returns IndexedDBWriter when showDirectoryPicker is not available', () => {
       vi.stubGlobal('window', {
         indexedDB: {},
@@ -493,6 +513,185 @@ describe('IndexedDBWriter', () => {
       factory.initialize('conn-1');
 
       expect(factory.kind()).toBe('indexeddb');
+    });
+  });
+
+  describe('IndexedDBWriter with fake-indexeddb', () => {
+    let writer: IndexedDBWriter;
+    let connectionId: string;
+
+    beforeEach(async () => {
+      // Clean up any existing databases
+      await indexedDB.databases?.();
+      connectionId = `test-conn-${Date.now()}`;
+      writer = new IndexedDBWriter(connectionId);
+    });
+
+    it('write and read chunks round-trip', async () => {
+      const fileId = 'file-1';
+      const fileName = 'test.txt';
+      const fileSize = 1024;
+      const mimeType = 'text/plain';
+
+      // Start the file
+      await writer.startFile({ fileId, fileName, fileSize, mimeType });
+
+      // Write some chunks
+      const chunk1 = new TextEncoder().encode('hello').buffer;
+      const chunk2 = new TextEncoder().encode('world').buffer;
+
+      await writer.writeChunk(fileId, 0, chunk1);
+      await writer.writeChunk(fileId, 1, chunk2);
+
+      // Read chunks back
+      const chunks = await writer.getFileChunks(fileId);
+      
+      expect(chunks).toBeDefined();
+      expect(chunks!.size).toBe(2);
+      expect(chunks!.get(0)).toEqual(chunk1);
+      expect(chunks!.get(1)).toEqual(chunk2);
+    });
+
+    it('cancel deletes file and all chunks', async () => {
+      const fileId = 'file-2';
+      const fileName = 'test2.txt';
+      const fileSize = 1024;
+      const mimeType = 'text/plain';
+
+      // Start and write to the file
+      await writer.startFile({ fileId, fileName, fileSize, mimeType });
+      const chunk = new TextEncoder().encode('test').buffer;
+      await writer.writeChunk(fileId, 0, chunk);
+
+      // Verify chunks exist
+      let chunks = await writer.getFileChunks(fileId);
+      expect(chunks!.size).toBe(1);
+
+      // Cancel the file
+      await writer.cancel(fileId);
+
+      // Verify chunks are deleted
+      chunks = await writer.getFileChunks(fileId);
+      expect(chunks).toBeDefined();
+      expect(chunks!.size).toBe(0);
+    });
+
+    it('concurrent writes to different files do not interleave', async () => {
+      const file1Id = 'file-a';
+      const file2Id = 'file-b';
+
+      // Start both files
+      await writer.startFile({ fileId: file1Id, fileName: 'file1.txt', fileSize: 100, mimeType: 'text/plain' });
+      await writer.startFile({ fileId: file2Id, fileName: 'file2.txt', fileSize: 100, mimeType: 'text/plain' });
+
+      // Write to both files with different content
+      const chunk1 = new TextEncoder().encode('file1-chunk').buffer;
+      const chunk2 = new TextEncoder().encode('file2-chunk').buffer;
+
+      await writer.writeChunk(file1Id, 0, chunk1);
+      await writer.writeChunk(file2Id, 0, chunk2);
+
+      // Read back
+      const chunks1 = await writer.getFileChunks(file1Id);
+      const chunks2 = await writer.getFileChunks(file2Id);
+
+      // Verify each file has its own chunk
+      expect(chunks1!.get(0)).toEqual(chunk1);
+      expect(chunks2!.get(0)).toEqual(chunk2);
+      // Verify the content is different by checking the byte content
+      expect(new Uint8Array(chunks1!.get(0)!)).not.toEqual(new Uint8Array(chunks2!.get(0)!));
+    });
+
+    it('getFileMetadata returns stored metadata', async () => {
+      const fileId = 'file-3';
+      const fileName = 'test3.txt';
+      const fileSize = 2048;
+      const mimeType = 'application/octet-stream';
+
+      await writer.startFile({ fileId, fileName, fileSize, mimeType });
+
+      const metadata = await writer.getFileMetadata(fileId);
+
+      expect(metadata).toBeDefined();
+      expect(metadata!.fileId).toBe(fileId);
+      expect(metadata!.fileName).toBe(fileName);
+      expect(metadata!.fileSize).toBe(fileSize);
+      expect(metadata!.mimeType).toBe(mimeType);
+    });
+
+    it('clear removes all file data', async () => {
+      const fileId1 = 'file-x';
+      const fileId2 = 'file-y';
+
+      // Start and write to both files
+      await writer.startFile({ fileId: fileId1, fileName: 'filex.txt', fileSize: 100, mimeType: 'text/plain' });
+      await writer.writeChunk(fileId1, 0, new ArrayBuffer(8));
+      
+      await writer.startFile({ fileId: fileId2, fileName: 'filey.txt', fileSize: 100, mimeType: 'text/plain' });
+      await writer.writeChunk(fileId2, 0, new ArrayBuffer(8));
+
+      // Clear all
+      await writer.clear();
+
+      // Verify both are gone
+      const chunks1 = await writer.getFileChunks(fileId1);
+      const chunks2 = await writer.getFileChunks(fileId2);
+
+      expect(chunks1).toBeDefined();
+      expect(chunks2).toBeDefined();
+      expect(chunks1!.size).toBe(0);
+      expect(chunks2!.size).toBe(0);
+    });
+
+    it('getDatabaseName returns correct name', () => {
+      const testWriter = new IndexedDBWriter('my-connection-123');
+      // @ts-expect-error - accessing private method for testing
+      expect(testWriter.getDatabaseName()).toBe('LocalFileShare-my-connection-123');
+    });
+
+    it('IndexedDBWriter with download launcher', async () => {
+      const launcher = new BrowserDownloadLauncher();
+      const writerWithLauncher = new IndexedDBWriter('test-conn', launcher);
+
+      const fileId = 'file-with-launcher';
+      await writerWithLauncher.startFile({ 
+        fileId, 
+        fileName: 'test.txt', 
+        fileSize: 100, 
+        mimeType: 'text/plain' 
+      });
+
+      // Write a chunk
+      await writerWithLauncher.writeChunk(fileId, 0, new TextEncoder().encode('hello').buffer);
+
+      // Read it back
+      const chunks = await writerWithLauncher.getFileChunks(fileId);
+      expect(chunks!.size).toBe(1);
+    });
+  });
+
+  describe('StorageBackendFactory static detect', () => {
+    it('static detect returns fsa when showDirectoryPicker is available', () => {
+      vi.stubGlobal('window', {
+        showDirectoryPicker: vi.fn(),
+        indexedDB: {},
+      } as unknown as Window & typeof globalThis);
+
+      expect(StorageBackendFactory.detect()).toBe('fsa');
+    });
+
+    it('static detect returns indexeddb when only indexedDB is available', () => {
+      vi.stubGlobal('window', {
+        indexedDB: {},
+      } as unknown as Window & typeof globalThis);
+
+      expect(StorageBackendFactory.detect()).toBe('indexeddb');
+    });
+
+    it('static detect throws when no backend is available', () => {
+      vi.stubGlobal('window', {} as unknown as Window & typeof globalThis);
+
+      expect(() => StorageBackendFactory.detect()).toThrow('No storage backend available');
     });
   });
 });

@@ -4,6 +4,7 @@
  */
 
 import type { FileSystemWriter, FileMetadata } from './FileSystemWriter.js';
+import { FileSystemAccessWriter } from './FileSystemAccessWriter.js';
 
 const DATABASE_PREFIX = 'LocalFileShare';
 const FILES_STORE = 'files';
@@ -133,7 +134,8 @@ export class IndexedDBWriter implements FileSystemWriter {
       const transaction = db.transaction(CHUNKS_STORE, 'readwrite');
       const store = transaction.objectStore(CHUNKS_STORE);
 
-      const request = store.put(data, key);
+      // Store as { key, data } object since keyPath is 'key'
+      const request = store.put({ key, data });
 
       request.onsuccess = () => resolve();
       request.onerror = () => reject(new Error(`Failed to store chunk ${index}: ${request.error}`));
@@ -204,17 +206,25 @@ export class IndexedDBWriter implements FileSystemWriter {
   async cancel(fileId: string): Promise<void> {
     const db = await this.openDatabase();
 
-    // First, get all chunk keys for this file
-    const chunkKeys = await new Promise<string[]>((resolve, reject) => {
+    // First, get all chunk objects for this file
+    const chunkObjects = await new Promise<Array<{ key: string }>>((resolve, reject) => {
       const transaction = db.transaction(CHUNKS_STORE, 'readonly');
       const store = transaction.objectStore(CHUNKS_STORE);
 
-      const request = store.getAllKeys();
+      const chunks: Array<{ key: string }> = [];
+      const request = store.openCursor();
 
       request.onsuccess = () => {
-        const allKeys = request.result as string[];
-        const fileChunkKeys = allKeys.filter((key) => key.startsWith(`${fileId}__`));
-        resolve(fileChunkKeys);
+        const cursor = request.result;
+        if (cursor) {
+          const key = cursor.key as string;
+          if (key.startsWith(`${fileId}__`)) {
+            chunks.push(cursor.value as { key: string });
+          }
+          cursor.continue();
+        } else {
+          resolve(chunks);
+        }
       };
 
       request.onerror = () => reject(new Error(`Failed to get chunk keys: ${request.error}`));
@@ -228,8 +238,8 @@ export class IndexedDBWriter implements FileSystemWriter {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(new Error(`Failed to delete chunks: ${transaction.error}`));
 
-      for (const key of chunkKeys) {
-        store.delete(key);
+      for (const obj of chunkObjects) {
+        store.delete(obj.key);
       }
     });
 
@@ -265,7 +275,9 @@ export class IndexedDBWriter implements FileSystemWriter {
           const key = cursor.key as string;
           if (key.startsWith(`${fileId}__`)) {
             const index = parseInt(key.substring(fileId.length + 2), 10);
-            chunks.set(index, cursor.value as ArrayBuffer);
+            // cursor.value is { key, data } object
+            const value = cursor.value as { key: string; data: ArrayBuffer };
+            chunks.set(index, value.data);
           }
           cursor.continue();
         } else {
@@ -420,29 +432,34 @@ export class StorageBackendFactory {
 
   /**
    * Detect which storage backend is available.
+   * Can be called without initialization for simple detection.
+   */
+  static detect(): 'fsa' | 'indexeddb' {
+    if ('showDirectoryPicker' in window) {
+      return 'fsa';
+    } else if ('indexedDB' in window) {
+      return 'indexeddb';
+    } else {
+      throw new Error('No storage backend available');
+    }
+  }
+
+  /**
+   * Detect which storage backend is available.
+   * Uses cached result if available.
    */
   detect(): 'fsa' | 'indexeddb' {
     if (this.backend) {
       return this.backend;
     }
 
-    if (!this.initialized) {
-      throw new Error('StorageBackendFactory not initialized. Call initialize() first.');
-    }
-
-    if ('showDirectoryPicker' in window) {
-      this.backend = 'fsa';
-    } else if ('indexedDB' in window) {
-      this.backend = 'indexeddb';
-    } else {
-      throw new Error('No storage backend available');
-    }
-
+    this.backend = StorageBackendFactory.detect();
     return this.backend;
   }
 
   /**
    * Get the storage backend kind.
+   * Uses cached detection result.
    */
   kind(): 'fsa' | 'indexeddb' {
     return this.detect();
@@ -460,13 +477,10 @@ export class StorageBackendFactory {
     const backendKind = this.kind();
 
     if (backendKind === 'fsa') {
-      // Import FileSystemAccessWriter - this should be available since it's in the same package
-      // Note: This assumes FileSystemAccessWriter is imported elsewhere and available
-      // For now, we'll just use IndexedDBWriter for both to avoid the circular dependency
-      // In a real implementation, this would be properly resolved
-      throw new Error('FSA writer not yet implemented - use IndexedDB writer');
+      // File System Access API writer
+      this.writer = new FileSystemAccessWriter();
     } else {
-      // IndexedDB writer
+      // IndexedDB writer with download launcher
       const downloadLauncher = new BrowserDownloadLauncher();
       this.writer = new IndexedDBWriter(this.connectionId, downloadLauncher);
     }
