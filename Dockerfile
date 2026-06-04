@@ -44,8 +44,15 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/server/dist ./packages/server/dist
 COPY --from=builder /app/packages/client/dist ./client-dist
 
+# Fix permissions for node user
+RUN chown -R node:node /app && \
+    chmod -R a+rX /app
+
 # Verify the server dist exists
 RUN ls -la packages/server/dist/index.js
+
+# Switch to node user
+USER node
 
 EXPOSE 3000
 CMD ["node", "packages/server/dist/index.js"]

@@ -5,7 +5,7 @@ import {
   createServer,
 } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve, extname } from 'node:path';
+import { resolve, join, extname } from 'node:path';
 import { DEFAULT_PORT, Logger } from '@lfs/shared';
 import type { AnySignalingMessage } from '@lfs/shared';
 import { type WebSocket, WebSocketServer } from 'ws';
@@ -136,7 +136,7 @@ export class SignalingServer {
 
     // Get the file path from the URL
     const url = new URL(req.url!, `http://${req.headers.host}`);
-    let filepath = resolve(this.staticDir, url.pathname);
+    let filepath = join(this.staticDir, url.pathname.slice(1));
 
     // Security check: ensure the resolved path is within staticDir
     const staticDirResolved = resolve(this.staticDir);
@@ -178,9 +178,9 @@ export class SignalingServer {
     }
 
     // File not found
-    if (existsSync(resolve(this.staticDir, 'index.html'))) {
+    if (existsSync(join(this.staticDir, 'index.html'))) {
       // Serve index.html for SPA routing
-      const indexContent = readFileSync(resolve(this.staticDir, 'index.html'));
+      const indexContent = readFileSync(join(this.staticDir, 'index.html'));
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(indexContent);
       return true;

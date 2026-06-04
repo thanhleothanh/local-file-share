@@ -212,8 +212,8 @@ export class ConnectionViewModel {
         } catch {
           /* ignore */
         }
-        // On connect-accepted, initialize WebRTC as answerer
-        this.initiateWebRTC(m.from, false);
+        // Initialize WebRTC as offerer when connection is accepted
+        this.initiateWebRTC(m.from, true);
         this.update((prev) => ({
           ...prev,
           connectedDeviceId: m.from,
@@ -303,8 +303,6 @@ export class ConnectionViewModel {
     } catch {
       return false;
     }
-    // Initialize WebRTC as offerer when request is sent
-    this.initiateWebRTC(targetDeviceId, true);
     this.update((prev) => ({
       ...prev,
       connectingToDeviceId: targetDeviceId,
@@ -324,6 +322,8 @@ export class ConnectionViewModel {
       timestamp: Date.now(),
     });
     if (!sent) return false;
+    // Initialize WebRTC as answerer when accepting the connection
+    this.initiateWebRTC(req.fromDeviceId, false);
     this.update((prev) => ({
       ...prev,
       incomingRequest: null,
