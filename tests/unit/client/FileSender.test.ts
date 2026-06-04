@@ -1,6 +1,6 @@
-import { decodeChunk, generateUuid } from '@lfs/shared';
+import { decodeChunk, generateUuid, createChunkCache } from '@lfs/shared';
 import { FileSender } from '../../../packages/client/src/files/FileSender.js';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 describe('FileSender', () => {
   it('sends a file by splitting it into chunks', async () => {
@@ -118,5 +118,139 @@ describe('FileSender', () => {
     const file = new File([new TextEncoder().encode('test')], 'test.txt');
 
     await expect(sender.sendFile(file)).rejects.toThrow();
+  });
+
+  describe('ChunkCache integration', () => {
+    it('adds chunks to cache after sending', async () => {
+      const chunks: ArrayBuffer[] = [];
+      const sendChunk = vi.fn().mockImplementation(async (chunk: ArrayBuffer) => {
+        chunks.push(chunk);
+      });
+
+      const cache = createChunkCache();
+      const sender = new FileSender({ sendChunk, cache });
+
+      const fileData = new TextEncoder().encode('test data');
+      const file = new File([fileData], 'test.txt');
+      const fileId = generateUuid();
+
+      await sender.sendFile(file, fileId);
+
+      // Verify chunks were added to cache
+      expect(cache.getChunkCount(fileId)).toBeGreaterThan(0);
+      expect(cache.getTotalByteSize()).toBe(fileData.byteLength);
+    });
+
+    it('cache contains all chunks after sending 1 MB file', async () => {
+      const chunks: ArrayBuffer[] = [];
+      const sendChunk = vi.fn().mockImplementation(async (chunk: ArrayBuffer) => {
+        chunks.push(chunk);
+      });
+
+      const cache = createChunkCache();
+      const sender = new FileSender({ sendChunk, cache });
+
+      // Create 1 MB file
+      const fileSize = 1024 * 1024;
+      const fileData = new Uint8Array(fileSize);
+      for (let i = 0; i < fileSize; i++) {
+        fileData[i] = i % 256;
+      }
+      const file = new File([fileData], 'test-1mb.bin');
+      const fileId = generateUuid();
+
+      await sender.sendFile(file, fileId);
+
+      // Should have all chunks in cache
+      expect(cache.getChunkCount(fileId)).toBeGreaterThan(0);
+      // Total bytes in cache should equal file size
+      expect(cache.getByteSize(fileId)).toBe(fileSize);
+    });
+
+    it('handles chunk ACK by deleting from cache', async () => {
+      const sendChunk = vi.fn().mockResolvedValue(undefined);
+      const cache = createChunkCache();
+      const sender = new FileSender({ sendChunk, cache });
+
+      const fileData = new TextEncoder().encode('test data');
+      const file = new File([fileData], 'test.txt');
+      const fileId = generateUuid();
+
+      await sender.sendFile(file, fileId);
+
+      // Get the chunk count before ACK
+      const chunkCountBefore = cache.getChunkCount(fileId);
+      expect(chunkCountBefore).toBeGreaterThan(0);
+
+      // Handle ACK for chunk 0
+      const result = sender.handleChunkAck(fileId, 0);
+      expect(result).toBe(true);
+
+      // Verify chunk was deleted
+      expect(cache.getChunkCount(fileId)).toBe(chunkCountBefore - 1);
+    });
+
+    it('handleChunkAck returns false for unknown chunk', () => {
+      const sendChunk = vi.fn().mockResolvedValue(undefined);
+      const cache = createChunkCache();
+      const sender = new FileSender({ sendChunk, cache });
+
+      const result = sender.handleChunkAck('unknown-file', 0);
+      expect(result).toBe(false);
+    });
+
+    it('deleteFile removes all chunks for a file', async () => {
+      const sendChunk = vi.fn().mockResolvedValue(undefined);
+      const cache = createChunkCache();
+      const sender = new FileSender({ sendChunk, cache });
+
+      const fileData = new TextEncoder().encode('test data');
+      const file = new File([fileData], 'test.txt');
+      const fileId = generateUuid();
+
+      await sender.sendFile(file, fileId);
+
+      // Verify chunks are in cache
+      expect(cache.getChunkCount(fileId)).toBeGreaterThan(0);
+
+      // Delete all chunks for the file
+      sender.deleteFile(fileId);
+
+      // Verify cache is empty for this file
+      expect(cache.getChunkCount(fileId)).toBe(0);
+    });
+
+    it('getCache returns the cache instance', () => {
+      const sendChunk = vi.fn().mockResolvedValue(undefined);
+      const cache = createChunkCache();
+      const sender = new FileSender({ sendChunk, cache });
+
+      expect(sender.getCache()).toBe(cache);
+    });
+
+    it('cache is empty after all ACKs received', async () => {
+      const sendChunk = vi.fn().mockResolvedValue(undefined);
+      const cache = createChunkCache();
+      const sender = new FileSender({ sendChunk, cache });
+
+      const fileSize = 16 * 1024; // 16 KB = exactly 1 chunk
+      const fileData = new Uint8Array(fileSize);
+      for (let i = 0; i < fileSize; i++) {
+        fileData[i] = i % 256;
+      }
+      const file = new File([fileData], 'test-16kb.bin');
+      const fileId = generateUuid();
+
+      await sender.sendFile(file, fileId);
+
+      // Should have 1 chunk in cache
+      expect(cache.getChunkCount(fileId)).toBe(1);
+
+      // Handle ACK for chunk 0
+      sender.handleChunkAck(fileId, 0);
+
+      // Cache should be empty
+      expect(cache.getChunkCount(fileId)).toBe(0);
+    });
   });
 });

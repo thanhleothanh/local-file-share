@@ -186,4 +186,104 @@ describe('FileReceiver', () => {
     expect(assembledEvents.length).toBe(1);
     expect(assembledEvents[0].byteLength).toBe(0);
   });
+
+  describe('CHUNK_ACK sending', () => {
+    it('calls sendChunkAck callback for every chunk received', async () => {
+      const sentAcks: Array<{ fileId: string; index: number }> = [];
+      const receiver = new FileReceiver({
+        sendChunkAck: (fileId, index) => {
+          sentAcks.push({ fileId, index });
+        },
+      });
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const originalData = new TextEncoder().encode('hello world');
+      const totalBytes = originalData.byteLength;
+
+      // Send chunks
+      const chunkSize = 16384;
+      for (let index = 0; index < Math.ceil(originalData.byteLength / chunkSize); index++) {
+        const offset = index * chunkSize;
+        const end = Math.min(offset + chunkSize, originalData.byteLength);
+        const chunkData = originalData.slice(offset, end);
+        const isLast = index === Math.ceil(originalData.byteLength / chunkSize) - 1;
+
+        const encodedChunk = encodeChunk(fileId, index, isLast, chunkData);
+        await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+      }
+
+      // Verify ACK was sent for each chunk
+      expect(sentAcks.length).toBeGreaterThan(0);
+      // Verify all indices are accounted for
+      const receivedIndices = sentAcks.map(a => a.index);
+      const expectedIndices = Array.from({ length: Math.ceil(originalData.byteLength / chunkSize) }, (_, i) => i);
+      expect(receivedIndices.sort((a, b) => a - b)).toEqual(expectedIndices);
+    });
+
+    it('sends ACK with correct fileId and index', async () => {
+      const sentAcks: Array<{ fileId: string; index: number }> = [];
+      const receiver = new FileReceiver({
+        sendChunkAck: (fileId, index) => {
+          sentAcks.push({ fileId, index });
+        },
+      });
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const originalData = new TextEncoder().encode('test');
+      const totalBytes = originalData.byteLength;
+
+      const encodedChunk = encodeChunk(fileId, 42, true, originalData);
+      await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+
+      expect(sentAcks.length).toBe(1);
+      expect(sentAcks[0].fileId).toBe(fileId);
+      expect(sentAcks[0].index).toBe(42);
+    });
+
+    it('does not throw when sendChunkAck is not provided', async () => {
+      const receiver = new FileReceiver(); // No sendChunkAck callback
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const originalData = new TextEncoder().encode('test');
+      const totalBytes = originalData.byteLength;
+
+      const encodedChunk = encodeChunk(fileId, 0, true, originalData);
+      await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+
+      // Should not throw
+      expect(() => receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk)).not.toThrow();
+    });
+
+    it('sends ACK for each of 100 chunks', async () => {
+      const sentAcks: Array<{ fileId: string; index: number }> = [];
+      const receiver = new FileReceiver({
+        sendChunkAck: (fileId, index) => {
+          sentAcks.push({ fileId, index });
+        },
+      });
+
+      const fileId = generateUuid();
+      const fileName = 'test.bin';
+      const totalBytes = 16 * 1024 * 100; // 100 chunks of 16 KB each
+
+      // Send 100 chunks
+      for (let index = 0; index < 100; index++) {
+        const chunkData = new Uint8Array(16 * 1024);
+        for (let i = 0; i < chunkData.length; i++) {
+          chunkData[i] = (index + i) % 256;
+        }
+        const isLast = index === 99;
+        const encodedChunk = encodeChunk(fileId, index, isLast, chunkData);
+        await receiver.handleChunk(fileId, fileName, totalBytes, encodedChunk);
+      }
+
+      expect(sentAcks.length).toBe(100);
+      // Verify all indices from 0 to 99 are present
+      const receivedIndices = sentAcks.map(a => a.index).sort((a, b) => a - b);
+      expect(receivedIndices).toEqual(Array.from({ length: 100 }, (_, i) => i));
+    });
+  });
 });

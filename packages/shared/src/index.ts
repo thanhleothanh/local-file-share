@@ -7,3 +7,5 @@ export * from './Logger.js';
 export * from './MessageTypes.js';
 export * from './ControlMessageTypes.js';
 export * from './ChunkCodec.js';
+export * from './ChunkCache.js';
+export * from './AckHandler.js';

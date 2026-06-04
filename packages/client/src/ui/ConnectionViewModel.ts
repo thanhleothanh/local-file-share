@@ -44,6 +44,7 @@ export class ConnectionViewModel {
   private fileSender: FileSender | null = null;
   private fileReceiver: FileReceiver | null = null;
   private fsaWriter: FileSystemAccessWriter | null = null;
+  private controlChannel: RTCDataChannel | null = null;
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -413,6 +414,9 @@ export class ConnectionViewModel {
           } else if (payload.channel === 'data' && payload.data instanceof ArrayBuffer) {
             // Handle incoming file chunk
             this.handleIncomingChunk(payload.data);
+          } else if (payload.channel === 'control' && typeof payload.data === 'string') {
+            // Handle control channel messages (e.g., CHUNK_ACK)
+            this.handleControlMessage(payload.data);
           }
         },
       ),
@@ -422,7 +426,8 @@ export class ConnectionViewModel {
     this.unsubscribers.push(
       this.webrtc.on('data-channel-open', (channels) => {
         this.loggerFor('WebRTC').info('data channels open - initializing file transfer');
-        this.initFileTransfer(channels.data);
+        this.controlChannel = channels.control;
+        this.initFileTransfer(channels.data, channels.control);
       }),
     );
 
@@ -435,10 +440,13 @@ export class ConnectionViewModel {
   }
 
   /**
-   * Initialize file sender and receiver with the data channel.
+   * Initialize file sender and receiver with the data and control channels.
    */
-  private initFileTransfer(dataChannel: RTCDataChannel): void {
+  private initFileTransfer(dataChannel: RTCDataChannel, controlChannel: RTCDataChannel): void {
     this.cleanupFileTransfer();
+
+    // Store the control channel for sending ACK messages
+    this.controlChannel = controlChannel;
 
     // Wrap the data channel with SCTP backpressure
     // This replaces the send method with a Promise-returning version
@@ -493,9 +501,25 @@ export class ConnectionViewModel {
       this.fsaWriter = new FileSystemAccessWriter();
     }
 
-    // Create file receiver with the writer
+    // Create file receiver with the writer and ACK callback
+    // The ACK callback sends CHUNK_ACK messages on the control channel
     this.fileReceiver = new FileReceiver({
       writer: this.fsaWriter ?? undefined,
+      sendChunkAck: (fileId: string, index: number) => {
+        // Send CHUNK_ACK message on the control channel
+        const ackMessage = JSON.stringify({
+          type: 'CHUNK_ACK',
+          from: this.state.localDeviceId,
+          data: { fileId, index },
+        });
+        if (this.controlChannel && this.controlChannel.readyState === 'open') {
+          try {
+            this.controlChannel.send(ackMessage);
+          } catch (error) {
+            this.loggerFor('FileReceiver').warn('Failed to send CHUNK_ACK', { error });
+          }
+        }
+      },
     });
 
     // Set up receiver event listeners
@@ -553,6 +577,25 @@ export class ConnectionViewModel {
   }
 
   /**
+   * Handle an incoming control message (e.g., CHUNK_ACK).
+   */
+  private handleControlMessage(message: string): void {
+    try {
+      const parsed = JSON.parse(message) as { type: string; from: string; data?: unknown };
+
+      if (parsed.type === 'CHUNK_ACK' && this.fileSender) {
+        const data = parsed.data as { fileId: string; index: number } | undefined;
+        if (data?.fileId && typeof data.index === 'number') {
+          this.fileSender.handleChunkAck(data.fileId, data.index);
+        }
+      }
+      // Other control message types will be handled in future slices
+    } catch (error) {
+      this.loggerFor('Control').warn('Failed to parse control message', { error, message });
+    }
+  }
+
+  /**
    * Handle an incoming chunk from the data channel.
    * The chunk format is: [41-byte header][chunk data]
    * The header contains: fileId (36 bytes), index (4 bytes), isLast (1 byte)
@@ -600,6 +643,7 @@ export class ConnectionViewModel {
    */
   private cleanupWebRTC(): void {
     void this.cleanupFileTransfer();
+    this.controlChannel = null;
     if (this.webrtc) {
       this.webrtc.close();
       this.webrtc = null;

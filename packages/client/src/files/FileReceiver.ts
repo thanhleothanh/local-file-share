@@ -11,6 +11,11 @@ export interface FileReceiverEvents {
 export interface FileReceiverOptions {
   onChunkCallback?: (chunk: DecodedChunk) => void;
   writer?: FileSystemWriter | undefined;
+  /**
+   * Callback to send CHUNK_ACK messages on the control channel.
+   * This is called for every chunk received to acknowledge it to the sender.
+   */
+  sendChunkAck?: (fileId: string, index: number) => void;
 }
 
 type ChunkHandler = (fileId: string, index: number, data: ArrayBuffer, isLast: boolean) => void;
@@ -27,10 +32,12 @@ export class FileReceiver {
   private readonly progressListeners: ProgressHandler[] = [];
   private readonly onChunkCallback: ((chunk: DecodedChunk) => void) | undefined;
   private readonly writer: FileSystemWriter | undefined;
+  private readonly sendChunkAck: ((fileId: string, index: number) => void) | undefined;
 
   constructor(options: FileReceiverOptions = {}) {
     this.onChunkCallback = options.onChunkCallback;
     this.writer = options.writer;
+    this.sendChunkAck = options.sendChunkAck;
   }
 
   onChunk(handler: ChunkHandler): () => void {
@@ -96,6 +103,7 @@ export class FileReceiver {
   /**
    * Handle an incoming raw chunk (encoded with header).
    * Decodes it and stores it in the buffer.
+   * Sends CHUNK_ACK on the control channel for every chunk received.
    */
   async handleChunk(
     fileId: string,
@@ -143,6 +151,12 @@ export class FileReceiver {
       this.chunkBuffers.set(fileId, fileChunks);
     }
     fileChunks.set(decoded.index, decoded.data);
+
+    // Send CHUNK_ACK for this chunk on the control channel
+    // This acknowledges receipt to the sender
+    if (this.sendChunkAck) {
+      this.sendChunkAck(fileId, decoded.index);
+    }
 
     // Calculate bytes received so far
     const bytesReceived = Array.from(fileChunks.entries()).reduce(
