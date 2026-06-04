@@ -4,6 +4,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ConnectionViewModel, ConnectionViewModelState } from './ConnectionViewModel.js';
 import './connected-card.js';
 import './connection-tab.js';
+import './files-tab.js';
 import './file-progress.js';
 import './incoming-prompt.js';
 
@@ -179,7 +180,7 @@ export class AppShell extends LitElement {
                 incomingRequest,
                 fileProgress,
               )
-            : html`<p>Files tab</p>`
+            : html`<files-tab .viewModel=${this.viewModel} .connected=${this.connected}></files-tab>`
         }
       </main>
     `;

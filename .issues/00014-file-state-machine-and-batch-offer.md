@@ -6,7 +6,13 @@ Derived from `.docs/prds/0007-state-machines-queue-and-lifecycle.md` (FileStateM
 
 ## Status
 
-In Progress — 2026-06-04. FileStateMachine, FileQueue, and FileRegistry modules created and wired into ConnectionViewModel. Multi-file picker implemented. FILE_OFFER, FILE_ACCEPT, and FILE_REJECT message handling added. Queue advancement implemented - when a file completes, the next QUEUED file starts automatically via FileQueue.startNextFile(). State transitions logged to console. 456 total tests pass.
+Done — 2026-06-04. FileStateMachine, FileQueue, and FileRegistry modules created and wired into ConnectionViewModel. Multi-file picker implemented. FILE_OFFER, FILE_ACCEPT, and FILE_REJECT message handling added. Queue advancement implemented - when a file completes, the next QUEUED file starts automatically via FileQueue.startNextFile(). State transitions logged to console. 486 total tests pass.
+
+Remaining work (deferred to Issue 00015 - Files Tab UI):
+- Clicking a new "Accept" button on the receiver sends FILE_ACCEPT; the state transitions to QUEUED if any other file is TRANSFERRING, else TRANSFERRING
+- While a file is TRANSFERRING, all other "Accept" buttons are disabled
+- The sender can cancel a PENDING file via a new "Cancel" button; the receiver sees the row disappear
+- E2E test: A and B connect; A picks 3 files; all 3 appear PENDING on B; B accepts file 2 first; files 1 and 3 have disabled Accept buttons; file 2 transfers and completes; B accepts file 1; file 1 transfers; A cancels file 3; file 3 disappears from B's list
 
 ## What to build
 

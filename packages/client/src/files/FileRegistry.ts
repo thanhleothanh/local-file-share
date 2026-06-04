@@ -69,11 +69,12 @@ export class FileRegistry {
 
   /**
    * Get all file entries, sorted by createdAt descending (newest first).
+   * Returns a new array with new objects to ensure reactivity.
    */
   getAll(): FileEntry[] {
-    return Array.from(this.files.values()).sort(
-      (a, b) => b.createdAt - a.createdAt
-    );
+    return Array.from(this.files.values())
+      .map((entry) => ({ ...entry }))
+      .sort((a, b) => b.createdAt - a.createdAt);
   }
 
   /**

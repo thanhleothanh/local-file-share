@@ -57,6 +57,10 @@ export class ConnectionViewModel {
   private fileQueue: FileQueue = new FileQueue();
   // Store File objects for sending (fileId -> File)
   private fileStore: Map<string, File> = new Map();
+  // Track which files we sent (to determine direction)
+  private sentFileIds: Set<string> = new Set();
+  // Track progress for each file (fileId -> { bytesTransferred, totalBytes })
+  private fileProgressMap: Map<string, { bytesTransferred: number; totalBytes: number; isSender: boolean }> = new Map();
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -407,6 +411,175 @@ export class ConnectionViewModel {
 
     // Don't immediately send files - wait for FILE_ACCEPT messages
     // Queue advancement will be handled by handleFileAccept and FILE_RECEIVED
+    
+    // Track sent files for direction tracking
+    for (const entry of fileEntries) {
+      this.sentFileIds.add(entry.fileId);
+    }
+  }
+
+  /**
+   * Get the file registry for UI access.
+   */
+  getFileRegistry(): FileRegistry {
+    return this.fileRegistry;
+  }
+
+  /**
+   * Check if a file was sent by us (as opposed to received).
+   */
+  isSentFile(fileId: string): boolean {
+    return this.sentFileIds.has(fileId);
+  }
+
+  /**
+   * Get the progress map for all files.
+   */
+  getFileProgressMap(): Map<string, { bytesTransferred: number; totalBytes: number; isSender: boolean }> {
+    return new Map(this.fileProgressMap);
+  }
+
+  /**
+   * Update progress for a file.
+   */
+  private updateFileProgress(
+    fileId: string,
+    bytesTransferred: number,
+    totalBytes: number,
+    isSender: boolean
+  ): void {
+    this.fileProgressMap.set(fileId, { bytesTransferred, totalBytes, isSender });
+  }
+
+  /**
+   * Clear progress for a file.
+   */
+  private clearFileProgress(fileId: string): void {
+    this.fileProgressMap.delete(fileId);
+  }
+
+  /**
+   * Accept a file offer from the peer.
+   * Called by the receiver when they click Accept.
+   */
+  async acceptFile(fileId: string): Promise<void> {
+    if (this.state.connectionState !== ConnectionState.CONNECTED || !this.controlChannel) {
+      throw new Error('Cannot accept file: not connected or control channel not initialized');
+    }
+
+    // Send FILE_ACCEPT message to the sender
+    const acceptMessage = JSON.stringify({
+      type: 'FILE_ACCEPT',
+      from: this.state.localDeviceId,
+      data: { fileId, batchId: generateUuid() },
+    });
+
+    try {
+      this.controlChannel.send(acceptMessage);
+      this.loggerFor('FileReceiver').info('sent FILE_ACCEPT', { fileId });
+      
+      // Transition the file state
+      this.fileRegistry.transition(fileId, 'ACCEPT');
+      console.info(`[FileState] ${fileId}: PENDING → QUEUED (ACCEPT)`);
+    } catch (error) {
+      this.loggerFor('FileReceiver').warn('Failed to send FILE_ACCEPT', { error, fileId });
+      throw error;
+    }
+  }
+
+  /**
+   * Reject a file offer from the peer.
+   * Called by the receiver when they click Reject.
+   */
+  async rejectFile(fileId: string, reason?: string): Promise<void> {
+    if (this.state.connectionState !== ConnectionState.CONNECTED || !this.controlChannel) {
+      throw new Error('Cannot reject file: not connected or control channel not initialized');
+    }
+
+    // Send FILE_REJECT message to the sender
+    const rejectMessage = JSON.stringify({
+      type: 'FILE_REJECT',
+      from: this.state.localDeviceId,
+      data: { fileId, batchId: generateUuid(), reason: reason ?? 'rejected by user' },
+    });
+
+    try {
+      this.controlChannel.send(rejectMessage);
+      this.loggerFor('FileReceiver').info('sent FILE_REJECT', { fileId, reason });
+      
+      // Transition the file state
+      this.fileRegistry.transition(fileId, 'REJECT');
+      console.info(`[FileState] ${fileId}: PENDING → REJECTED (REJECT)`);
+      
+      // Remove from queue
+      this.fileQueue.remove(fileId);
+    } catch (error) {
+      this.loggerFor('FileReceiver').warn('Failed to send FILE_REJECT', { error, fileId });
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel a file that we offered.
+   * Called by the sender when they click Cancel.
+   */
+  async cancelFile(fileId: string): Promise<void> {
+    if (this.state.connectionState !== ConnectionState.CONNECTED || !this.controlChannel) {
+      throw new Error('Cannot cancel file: not connected or control channel not initialized');
+    }
+
+    const entry = this.fileRegistry.get(fileId);
+    if (!entry) {
+      throw new Error(`Cannot cancel file: ${fileId} not found in registry`);
+    }
+
+    // Only allow cancelling PENDING or QUEUED files
+    if (entry.state !== 'PENDING' && entry.state !== 'QUEUED') {
+      throw new Error(`Cannot cancel file in state: ${entry.state}`);
+    }
+
+    // Send CANCEL_FILE message (we'll use FILE_CANCEL for now)
+    const cancelMessage = JSON.stringify({
+      type: 'FILE_CANCEL',
+      from: this.state.localDeviceId,
+      data: { fileId },
+    });
+
+    try {
+      this.controlChannel.send(cancelMessage);
+      this.loggerFor('FileSender').info('sent FILE_CANCEL', { fileId });
+      
+      // Transition the file state
+      this.fileRegistry.transition(fileId, 'CANCEL');
+      console.info(`[FileState] ${fileId}: ${entry.state} → CANCELLED (CANCEL)`);
+      
+      // Remove from queue and store
+      this.fileQueue.remove(fileId);
+      this.fileStore.delete(fileId);
+      this.sentFileIds.delete(fileId);
+    } catch (error) {
+      this.loggerFor('FileSender').warn('Failed to send FILE_CANCEL', { error, fileId });
+      throw error;
+    }
+  }
+
+  /**
+   * Dismiss a file from the UI (for terminal states).
+   * This removes the file from the registry without sending any message.
+   */
+  dismissFile(fileId: string): void {
+    const entry = this.fileRegistry.get(fileId);
+    if (!entry) return;
+
+    // Only allow dismissing terminal states
+    if (!FileStateMachine.isTerminal(entry.state as FileState)) {
+      return;
+    }
+
+    this.fileRegistry.remove(fileId);
+    this.fileQueue.remove(fileId);
+    this.sentFileIds.delete(fileId);
+    console.info(`[FileState] dismissed ${fileId}`);
   }
 
   /**
@@ -686,13 +859,21 @@ export class ConnectionViewModel {
     this.fileSender.on('progress', (fileId: string, bytesSent: number, totalBytes: number) => {
       this.loggerFor('FileSender').info('progress', { fileId, bytesSent, totalBytes });
       console.info('[FileSender] progress', { fileId, bytesSent, totalBytes });
-      // Update progress state for sender
+      
+      // Update the progress map for all files
+      this.updateFileProgress(fileId, bytesSent, totalBytes, true);
+      
+      // Also update the single file progress state for backward compatibility
+      // (used by file-progress component)
+      const entry = this.fileRegistry.get(fileId);
+      const fileName = entry?.fileName ?? 'Unknown';
+      
       if (this.state.fileProgress?.fileId !== fileId) {
         this.update((prev) => ({
           ...prev,
           fileProgress: {
             fileId,
-            fileName: prev.fileProgress?.fileName ?? 'Unknown',
+            fileName,
             bytesTransferred: bytesSent,
             totalBytes,
             isSender: true,
@@ -798,13 +979,22 @@ export class ConnectionViewModel {
     this.fileReceiver.onProgress((fileId: string, bytesReceived: number, totalBytes: number) => {
       this.loggerFor('FileReceiver').info('progress', { fileId, bytesReceived, totalBytes });
       console.info('[FileReceiver] progress', { fileId, bytesReceived, totalBytes });
+      
+      // Update the progress map for all files
+      this.updateFileProgress(fileId, bytesReceived, totalBytes, false);
+      
+      // Also update the single file progress state for backward compatibility
+      // (used by file-progress component)
+      const entry = this.fileRegistry.get(fileId);
+      const fileName = entry?.fileName ?? 'Unknown';
+      
       // Update progress state
       if (this.state.fileProgress?.fileId !== fileId) {
         this.update((prev) => ({
           ...prev,
           fileProgress: {
             fileId,
-            fileName: this.state.fileProgress?.fileName ?? 'Unknown',
+            fileName,
             bytesTransferred: bytesReceived,
             totalBytes,
             isSender: false,
@@ -988,6 +1178,25 @@ export class ConnectionViewModel {
               // Advance the queue to start the next file
               this.advanceQueue();
             }
+          }
+          break;
+
+        case 'FILE_CANCEL':
+          // Handle file cancellation from the sender
+          const cancelData = parsed.data as { fileId: string } | undefined;
+          if (cancelData?.fileId) {
+            this.loggerFor('FileReceiver').info('received FILE_CANCEL', { fileId: cancelData.fileId });
+            console.info(`[FileState] received FILE_CANCEL for ${cancelData.fileId}`);
+            
+            // Transition the file state to CANCELLED on the receiver side
+            this.fileRegistry.transition(cancelData.fileId, 'CANCEL');
+            console.info(`[FileState] ${cancelData.fileId}: PENDING/QUEUED → CANCELLED (CANCEL)`);
+            
+            // Remove from queue
+            this.fileQueue.remove(cancelData.fileId);
+            
+            // If this file was being offered to us (receiver), we don't have it in sentFileIds
+            // So no need to remove from there
           }
           break;
 

@@ -30,9 +30,26 @@ Build the full Files tab UI on top of the file state machine from slice 14. A si
 - [ ] Unit test: `FilesTab` with 5 files in the registry renders 5 rows in the right order; empty registry renders the empty state
 - [ ] All previously passing tests still pass
 
+## Status
+
+In Progress — 2026-06-04. Files Tab UI implementation started. Created FilesTab and FileRow Lit components. Added acceptFile, rejectFile, cancelFile, dismissFile methods to ConnectionViewModel. Added file direction tracking (sent vs received). Added progress tracking for all files via fileProgressMap. Wired FilesTab into app-shell. Added FILE_CANCEL message handling. Added unit tests for FileRow and FilesTab components.
+
+## Progress
+
+Implemented:
+- `FilesTab` Lit component with file list, send button, and empty state rendering
+- `FileRow` Lit component for all 7 file states with appropriate UI and actions
+- FilesTab wired into app-shell to replace placeholder Files tab
+- ConnectionViewModel: added acceptFile, rejectFile, cancelFile, dismissFile public methods
+- ConnectionViewModel: added getFileRegistry, isSentFile, getFileProgressMap accessor methods
+- ConnectionViewModel: added FILE_CANCEL message handler for receiver side
+- FileRegistry.getAll() now returns new objects to ensure Lit reactivity
+- Progress tracking for all files (not just the current one)
+- Unit tests for FileRow (10 tests) and FilesTab (8 tests)
+
 ## Blocked by
 
-- 00014 (file state machine + batch offer)
+- 00014 (file state machine + batch offer) - Core infrastructure complete, remaining items deferred to this issue
 
 ## User stories covered
 
