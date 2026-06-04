@@ -137,31 +137,22 @@ export class QRHandler {
             // Use continuous decoding from video device
             const reader = this.qrCodeReader;
             
-            const decodeContinuously = async (reader, videoElement, onResult, onError) => {
-                try {
-                    this.scannerControls = await reader.decodeFromVideoDevice(
-                        undefined,
-                        videoElement,
-                        (result, error, controls) => {
-                            if (result && this.scanning) {
-                                this.scanning = false;
-                                this.handleScanResult(result, onResult, onError);
-                            }
-                            if (error && this.scanning) {
-                                // Continue scanning on error
-                            }
-                        }
-                    );
-                } catch (error) {
-                    // Continue scanning on error
+            // decodeFromVideoDevice runs continuously until controls.stop() is called
+            await reader.decodeFromVideoDevice(
+                undefined,
+                videoElement,
+                (result, error, controls) => {
+                    // Store controls on first callback so we can stop later
+                    if (!this.scannerControls) {
+                        this.scannerControls = controls;
+                    }
+                    if (result && this.scanning) {
+                        this.scanning = false;
+                        this.handleScanResult(result, onResult, onError);
+                    }
+                    // On error, continue scanning (do nothing)
                 }
-
-                if (this.scanning) {
-                    setTimeout(() => decodeContinuously(reader, videoElement, onResult, onError), 100);
-                }
-            };
-            
-            decodeContinuously(reader, videoElement, onResult, onError);
+            );
             
         } catch (error) {
             console.error('Failed to start scanning:', error);

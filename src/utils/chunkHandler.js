@@ -1,6 +1,7 @@
 /**
  * Chunk Handler
  * Handles binary chunk parsing and creation for data channel (ADR-0014, ADR-0015)
+ * Implements per-chunk ACK with batching (ADR-0030)
  */
 
 import { webrtcManager, MessageType } from '@modules/webrtcManager.js';
@@ -15,6 +16,9 @@ const HEADER_SIZE = 41; // 36 (fileId) + 4 (index) + 1 (isLast)
 // Max retransmit rounds per file before declaring failure.
 const MAX_NACK_ROUNDS = 3;
 
+// Per-chunk ACK batching (ADR-0030)
+const ACK_BATCH_INTERVAL = 5000; // 5 seconds
+
 /**
  * Chunk Handler
  * Manages chunking of files and reassembly
@@ -23,6 +27,9 @@ export class ChunkHandler {
     constructor() {
         this.receivedChunks = new Map(); // fileId -> Map<index, ArrayBuffer>
         this.nackRounds = new Map(); // fileId -> count of NACK rounds issued
+        this.ackBatch = new Map(); // fileId -> Set<index> for pending ACKs
+        this.ackTimers = new Map(); // fileId -> timeout handle for ACK batching
+        this.ackTimerStarts = new Map(); // fileId -> timestamp when timer was started
         this.eventListeners = {};
         this.initialized = false;
     }
@@ -110,7 +117,7 @@ export class ChunkHandler {
     }
 
     /**
-     * Store a received chunk
+     * Store a received chunk and track for ACK batching
      * @param {string} fileId - File ID
      * @param {number} index - Chunk index
      * @param {ArrayBuffer} data - Chunk data
@@ -134,7 +141,7 @@ export class ChunkHandler {
         // verified all indices 0..N-1 before the transition); these are
         // just stragglers from the SCTP send buffer.
         const file = fileTransferManager.getFile(fileId);
-        if (file && (file.state === FileState.COMPLETED || file.state === FileState.FAILED)) {
+        if (file && (file.state === FileState.COMPLETED || file.state === FileState.FAILED || file.state === FileState.CANCELLED)) {
             console.log('Late chunk for terminal-state file (ignored):', fileId, 'index', index, 'state', file.state);
             return Promise.resolve();
         }
@@ -147,6 +154,9 @@ export class ChunkHandler {
             file.updateChunks(1);
             fileTransferManager.emit('fileProgress', file);
         }
+
+        // Track this chunk for ACK batching (ADR-0030)
+        this.addChunkAck(fileId, index);
 
         const expectedChunks = file ? Math.ceil(file.size / CHUNK_SIZE) : 0;
 
@@ -171,6 +181,134 @@ export class ChunkHandler {
         }
 
         return Promise.resolve();
+    }
+
+    /**
+     * Add a chunk index to the ACK batch for a file (ADR-0030)
+     * @param {string} fileId - File ID
+     * @param {number} index - Chunk index
+     */
+    addChunkAck(fileId, index) {
+        if (!this.ackBatch.has(fileId)) {
+            this.ackBatch.set(fileId, new Set());
+        }
+        const ackSet = this.ackBatch.get(fileId);
+        
+        // Only add if not already in set (idempotent)
+        if (!ackSet.has(index)) {
+            ackSet.add(index);
+            // Start the interval timer if not already running
+            if (!this.ackTimers.has(fileId)) {
+                this.scheduleAckBatch(fileId);
+            }
+        }
+    }
+
+    /**
+     * Schedule the ACK batch timer for a file (ADR-0030)
+     * Uses a fixed interval (setInterval) to ensure ACKs are sent every 5s
+     * even if chunks keep arriving continuously.
+     * @param {string} fileId - File ID
+     */
+    scheduleAckBatch(fileId) {
+        // Clear any existing timer
+        this.clearAckTimer(fileId);
+        
+        // Start interval timer - will fire every ACK_BATCH_INTERVAL ms
+        const interval = setInterval(() => {
+            this.flushAckBatch(fileId);
+        }, ACK_BATCH_INTERVAL);
+        this.ackTimers.set(fileId, interval);
+        this.ackTimerStarts.set(fileId, Date.now());
+    }
+
+    /**
+     * Clear the ACK batch timer for a file (ADR-0030)
+     * @param {string} fileId - File ID
+     */
+    clearAckTimer(fileId) {
+        const timer = this.ackTimers.get(fileId);
+        if (timer) {
+            clearInterval(timer);
+            this.ackTimers.delete(fileId);
+        }
+        this.ackTimerStarts.delete(fileId);
+    }
+
+    /**
+     * Convert a set of indices to compact range format
+     * e.g., [0,1,2,4,5] -> [[0,2],[4,5]]
+     * @param {Set<number>} indexSet - Set of chunk indices
+     * @returns {Array<[number, number]>} Array of [start, end] ranges
+     */
+    compressIndicesToRanges(indexSet) {
+        if (indexSet.size === 0) return [];
+        
+        const sortedIndices = Array.from(indexSet).sort((a, b) => a - b);
+        const ranges = [];
+        let start = sortedIndices[0];
+        let end = start;
+        
+        for (let i = 1; i < sortedIndices.length; i++) {
+            const idx = sortedIndices[i];
+            if (idx === end + 1) {
+                // Extend current range
+                end = idx;
+            } else {
+                // Close current range, start new one
+                ranges.push([start, end]);
+                start = idx;
+                end = idx;
+            }
+        }
+        // Push the last range
+        ranges.push([start, end]);
+        
+        return ranges;
+    }
+
+    /**
+     * Flush pending ACKs for a file immediately (ADR-0030)
+     * Called on timer expiry, terminal states, or connection close
+     * @param {string} fileId - File ID
+     */
+    flushAckBatch(fileId) {
+        const ackSet = this.ackBatch.get(fileId);
+        if (!ackSet || ackSet.size === 0) {
+            return;
+        }
+
+        const file = fileTransferManager.getFile(fileId);
+        
+        if (file) {
+            // Convert indices to compact range format
+            const ranges = this.compressIndicesToRanges(ackSet);
+            console.log(`Sending CHUNK_ACK for file ${fileId.substring(0, 8)}... ranges:`, ranges);
+            
+            const message = {
+                type: MessageType.CHUNK_ACK,
+                connId: file.connId,
+                fileId: file.fileId,
+                ranges: ranges
+            };
+            webrtcManager.sendControlMessage(message);
+        }
+
+        // Clear the batch set but keep the map entry for future chunks
+        ackSet.clear();
+    }
+
+    /**
+     * Flush all pending ACKs and stop all timers (called on connection close)
+     */
+    flushAllAckBatches() {
+        for (const fileId of this.ackBatch.keys()) {
+            this.flushAckBatch(fileId);
+            this.clearAckTimer(fileId);
+        }
+        this.ackBatch.clear();
+        this.ackTimers.clear();
+        this.ackTimerStarts.clear();
     }
 
     /**
@@ -233,6 +371,9 @@ export class ChunkHandler {
             offset += chunk.byteLength;
         }
 
+        // Flush any pending ACKs for this file before marking as COMPLETED (ADR-0030)
+        this.flushAckBatch(fileId);
+
         // Mark the file as COMPLETED on the receiver here, not when the sender's
         // TRANSFER_DONE message arrives — the control message can race ahead of
         // late data chunks, and the file is only truly "done" once assembled.
@@ -272,6 +413,10 @@ export class ChunkHandler {
                 new Error(`Missing chunks after ${MAX_NACK_ROUNDS} retransmit attempts: ${missingIndices.length} chunks still missing`),
                 { fileId, fileName: file.name, missingCount: missingIndices.length, rounds }
             );
+            
+            // Flush any pending ACKs before marking as FAILED (ADR-0030)
+            this.flushAckBatch(fileId);
+            
             file.transitionState(FileState.FAILED);
             fileTransferManager.emit('fileTransferFailed', file);
             this.receivedChunks.delete(fileId);
@@ -440,20 +585,23 @@ export class ChunkHandler {
     }
 
     /**
-     * Clean up chunks for a file
+     * Clean up chunks and ACK tracking for a file
      * @param {string} fileId - File ID
      */
     cleanupFile(fileId) {
         this.receivedChunks.delete(fileId);
         this.nackRounds.delete(fileId);
+        this.ackBatch.delete(fileId);
+        this.clearAckTimer(fileId);
     }
 
     /**
-     * Clean up all chunks
+     * Clean up all chunks and ACK tracking
      */
     cleanupAll() {
         this.receivedChunks.clear();
         this.nackRounds.clear();
+        this.flushAllAckBatches();
     }
 
     /**
