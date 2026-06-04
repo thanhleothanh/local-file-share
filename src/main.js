@@ -18,23 +18,21 @@ import { websocketClient } from '@modules/websocketClient.js';
 
 // DOM Elements
 const loadingIndicator = document.getElementById('loadingIndicator');
-const offerQRCanvas = document.getElementById('offerQRCanvas');
-const answerQRCanvas = document.getElementById('answerQRCanvas');
-const scannerVideo = document.getElementById('scannerVideo');
-const answerScannerVideo = document.getElementById('answerScannerVideo');
 const myDeviceType = document.getElementById('myDeviceType');
-const stepDots = document.querySelectorAll('.step-dot');
-const stepLines = document.querySelectorAll('.step-line');
-const stepPanes = {
-  1: document.getElementById('step1Pane'),
-  2: document.getElementById('step2Pane'),
-  3: document.getElementById('step3Pane'),
-};
-const step1Idle = document.getElementById('step1Idle');
-const step1Initiator = document.getElementById('step1Initiator');
-const step1Joiner = document.getElementById('step1Joiner');
-const step2Initiator = document.getElementById('step2Initiator');
-const step2Joiner = document.getElementById('step2Joiner');
+
+// Device List UI Elements
+const deviceListContainer = document.getElementById('deviceListContainer');
+const ownDeviceRow = document.getElementById('ownDeviceRow');
+const ownDeviceName = document.getElementById('ownDeviceName');
+const ownDeviceId = document.getElementById('ownDeviceId');
+const connectionStatus = document.getElementById('connectionStatus');
+
+// Modal Elements
+const connectionModalOverlay = document.getElementById('connectionModalOverlay');
+const connectionModalTitle = document.getElementById('connectionModalTitle');
+const connectionModalMessage = document.getElementById('connectionModalMessage');
+const connectionAcceptBtn = document.getElementById('connectionAcceptBtn');
+const connectionRejectBtn = document.getElementById('connectionRejectBtn');
 
 // File UI Elements
 const fileInput = document.getElementById('fileInput');
@@ -42,11 +40,13 @@ const sendFilesBtn = document.getElementById('sendFilesBtn');
 const fileList = document.getElementById('fileList');
 
 // State management
-let currentScanMode = null; // 'OFFER' or 'ANSWER'
-let offerQRData = null;
+// Device list state
+let devices = []; // List of connected devices from WebSocket
+let connectedDevice = null; // Currently connected device
+
+// WebRTC state (kept for backward compatibility with webrtcManager)
 let connectionRole = 'idle'; // 'idle' | 'initiator' | 'joiner'
-let currentStep = 1; // 1 | 2 | 3
-let answerScannerActive = false; // tracks the step-2-initiator camera
+let currentStep = 3; // Start at step 3 (connected) for now, will be updated by webrtcManager
 
 /**
  * Format file size for display
@@ -459,6 +459,163 @@ function escapeHtml(s) {
  */
 function showToast(message, type = 'error') {
   toastManager.show(message, type);
+}
+
+/**
+ * Device List UI Functions (Issue 003)
+ */
+
+/**
+ * Update connection status UI
+ * @param {boolean} isConnected - Whether WebSocket is connected
+ */
+function updateConnectionStatus(isConnected) {
+  if (isConnected) {
+    connectionStatus.classList.remove('disconnected');
+    connectionStatus.classList.add('connected');
+    connectionStatus.innerHTML = '<span class="status-dot"></span><span>Connected to signaling server</span>';
+  } else {
+    connectionStatus.classList.remove('connected');
+    connectionStatus.classList.add('disconnected');
+    connectionStatus.innerHTML = '<span class="status-dot"></span><span>Disconnected from signaling server</span>';
+  }
+}
+
+/**
+ * Render device list UI
+ */
+function renderDeviceList() {
+  // Update own device info
+  ownDeviceName.textContent = websocketClient.getDeviceName();
+  ownDeviceId.textContent = websocketClient.getDeviceId();
+  ownDeviceRow.style.display = 'flex';
+
+  // Filter out own device from list
+  const otherDevices = devices.filter(d => d.deviceId !== websocketClient.getDeviceId());
+
+  if (otherDevices.length === 0) {
+    // Show empty state
+    deviceListContainer.innerHTML = `
+      <div class="device-list-empty">
+        <div class="empty-icon" aria-hidden="true">🔍</div>
+        <div>No other devices found</div>
+        <div class="empty-hint">Connect another device on the same network</div>
+      </div>
+    `;
+  } else {
+    // Render device list
+    const deviceRows = otherDevices.map(device => {
+      const isConnected = connectedDevice && connectedDevice.deviceId === device.deviceId;
+      return `
+        <div class="device-list-row" data-device-id="${device.deviceId}">
+          <span class="status-indicator"></span>
+          <div class="device-info">
+            <div class="device-name">${escapeHtml(device.deviceName)}</div>
+            <span class="device-status">${escapeHtml(device.deviceId.slice(0, 8))}</span>
+          </div>
+          <div class="device-actions">
+            ${isConnected ? `
+              <button class="btn-disconnect" onclick="disconnectDevice('${device.deviceId}')">Disconnect</button>
+            ` : `
+              <button class="btn-connect" onclick="connectToDevice('${device.deviceId}')">Connect</button>
+            `}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    deviceListContainer.innerHTML = deviceRows;
+  }
+}
+
+/**
+ * Update all device list related UI
+ */
+function updateDeviceListUI() {
+  updateConnectionStatus(websocketClient.getConnected());
+  renderDeviceList();
+}
+
+/**
+ * Connect to a specific device
+ * @param {string} deviceId - Device ID to connect to
+ */
+function connectToDevice(deviceId) {
+  console.log('Connecting to device:', deviceId);
+  const device = devices.find(d => d.deviceId === deviceId);
+  if (device) {
+    showToast(`Connecting to ${device.deviceName}...`, 'info');
+    // Send connection request via WebSocket
+    websocketClient.sendToDevice(deviceId, 'request-connect');
+    
+    // TODO: Start timeout (ADR-0038) - will be implemented in Issue 004
+  }
+}
+
+/**
+ * Disconnect from connected device
+ * @param {string} deviceId - Device ID to disconnect from
+ */
+function disconnectDevice(deviceId) {
+  console.log('Disconnecting from device:', deviceId);
+  // TODO: Implement in Issue 006
+  showToast('Disconnect not yet implemented', 'warning');
+}
+
+/**
+ * Show connection request modal
+ * @param {string} deviceName - Name of device requesting connection
+ * @param {string} deviceId - ID of device requesting connection
+ */
+let pendingConnectionRequest = null;
+
+function showConnectionModal(deviceName, deviceId) {
+  pendingConnectionRequest = { deviceId, deviceName };
+  connectionModalTitle.textContent = 'Connection Request';
+  connectionModalMessage.textContent = `${deviceName} wants to connect to you`;
+  connectionModalOverlay.classList.remove('hidden');
+}
+
+function hideConnectionModal() {
+  pendingConnectionRequest = null;
+  connectionModalOverlay.classList.add('hidden');
+}
+
+function acceptConnectionRequest() {
+  if (pendingConnectionRequest) {
+    const { deviceId, deviceName } = pendingConnectionRequest;
+    console.log('Accepting connection from:', deviceName);
+    websocketClient.sendToDevice(deviceId, 'accept-connect');
+    hideConnectionModal();
+    showToast(`Connection accepted with ${deviceName}`, 'success');
+    
+    // Mark as connected
+    connectedDevice = { deviceId, deviceName };
+    updateDeviceListUI();
+    
+    // TODO: Start WebRTC handshake (Issue 005)
+  }
+}
+
+function rejectConnectionRequest() {
+  if (pendingConnectionRequest) {
+    const { deviceId, deviceName } = pendingConnectionRequest;
+    console.log('Rejecting connection from:', deviceName);
+    websocketClient.sendToDevice(deviceId, 'reject-connect', { reason: 'User rejected' });
+    hideConnectionModal();
+    showToast(`Connection rejected from ${deviceName}`, 'info');
+  }
+}
+
+/**
+ * Escape HTML to prevent XSS
+ * @param {string} text - Text to escape
+ * @returns {string} Escaped text
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 /**
@@ -978,6 +1135,10 @@ async function init() {
     // Setup file input handler
     fileInput.addEventListener('change', handleFileSelection);
 
+    // Setup modal event listeners
+    connectionAcceptBtn.addEventListener('click', acceptConnectionRequest);
+    connectionRejectBtn.addEventListener('click', rejectConnectionRequest);
+
     // Setup module event listeners
     setupModuleListeners();
 
@@ -998,28 +1159,46 @@ async function init() {
  */
 function setupWebSocketListeners() {
   // Device list updates
-  websocketClient.on('device-list', (devices) => {
-    console.log('Device list updated:', devices);
-    // TODO: Update device list UI (Issue 003)
+  websocketClient.on('device-list', (receivedDevices) => {
+    console.log('Device list updated:', receivedDevices);
+    devices = receivedDevices;
+    updateDeviceListUI();
   });
 
   // Device disconnected
   websocketClient.on('device-disconnected', (deviceId) => {
     console.log('Device disconnected:', deviceId);
-    // TODO: Update device list UI (Issue 003)
+    // Remove from local list and clear if it was the connected device
+    devices = devices.filter(d => d.deviceId !== deviceId);
+    if (connectedDevice && connectedDevice.deviceId === deviceId) {
+      connectedDevice = null;
+    }
+    updateDeviceListUI();
   });
 
   // Connection request received
   websocketClient.on('connect-request', ({ fromDeviceId, fromDeviceName }) => {
     console.log('Connection request from:', fromDeviceName, '(', fromDeviceId, ')');
-    showToast(`${fromDeviceName} wants to connect to you`, 'info');
-    // TODO: Show modal dialog for accept/reject (Issue 004)
+    // Check if already connected (1:1 only per ADR-0017)
+    if (connectedDevice) {
+      // Auto-reject if already connected
+      websocketClient.sendToDevice(fromDeviceId, 'reject-connect', { 
+        reason: 'Already connected to another device' 
+      });
+      showToast(`Rejected ${fromDeviceName}: already connected`, 'warning');
+      return;
+    }
+    showConnectionModal(fromDeviceName, fromDeviceId);
   });
 
   // Connection accepted
   websocketClient.on('connect-accepted', ({ fromDeviceId, fromDeviceName }) => {
     console.log('Connection accepted by:', fromDeviceName);
     showToast(`Connection accepted by ${fromDeviceName}`, 'success');
+    // Mark as connected
+    connectedDevice = { deviceId: fromDeviceId, deviceName: fromDeviceName };
+    updateDeviceListUI();
+    
     // TODO: Start WebRTC handshake (Issue 005)
   });
 
@@ -1027,7 +1206,6 @@ function setupWebSocketListeners() {
   websocketClient.on('connect-rejected', ({ fromDeviceId, fromDeviceName, reason }) => {
     console.log('Connection rejected by:', fromDeviceName, 'Reason:', reason);
     showToast(`${fromDeviceName} rejected the connection` + (reason ? `: ${reason}` : ''), 'error');
-    // TODO: Update UI to show rejection
   });
 
   // WebRTC signaling messages
@@ -1049,12 +1227,12 @@ function setupWebSocketListeners() {
   // Connection status
   websocketClient.on('connected', () => {
     console.log('WebSocket connected to signaling server');
-    showToast('Connected to signaling server', 'success');
+    updateDeviceListUI();
   });
 
   websocketClient.on('disconnected', ({ code, reason }) => {
     console.log('WebSocket disconnected:', code, reason);
-    showToast('Disconnected from signaling server. Reconnecting...', 'warning');
+    updateDeviceListUI();
   });
 
   websocketClient.on('error', (error) => {

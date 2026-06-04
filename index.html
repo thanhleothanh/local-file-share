@@ -946,6 +946,220 @@
             font-size: 0.8rem;
             color: var(--text-secondary);
         }
+
+        /* Device List UI (ADR-0031, Issue 003) */
+        .device-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin: 0.5rem 0;
+        }
+
+        .device-list-empty {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: var(--text-secondary);
+        }
+
+        .device-list-empty .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+            opacity: 0.6;
+        }
+
+        .device-list-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            position: relative;
+            transition: background-color 0.2s ease;
+        }
+
+        .device-list-row:hover {
+            background: var(--bg-light);
+        }
+
+        .device-list-row .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success);
+            flex-shrink: 0;
+            box-shadow: 0 0 4px var(--success);
+        }
+
+        .device-list-row .device-info {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .device-list-row .device-name {
+            font-weight: 500;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .device-list-row .device-status {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .device-list-row .device-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .device-list-row .btn-connect {
+            background: var(--accent);
+            color: var(--text-on-light);
+            border: none;
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .device-list-row .btn-connect:hover {
+            background: var(--accent-alt);
+        }
+
+        .device-list-row .btn-disconnect {
+            background: var(--error);
+            color: var(--text-on-light);
+            border: none;
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .device-list-row .btn-disconnect:hover {
+            background: #c43a2d;
+        }
+
+        .device-list-row .you-badge {
+            background: var(--info);
+            color: var(--text-on-light);
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            margin-left: 0.5rem;
+        }
+
+        /* Modal dialog for connection requests */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-overlay.hidden {
+            display: none;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 1.5rem;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal h3 {
+            color: var(--text-primary);
+            margin: 0 0 1rem 0;
+            font-size: 1.25rem;
+        }
+
+        .modal p {
+            color: var(--text-secondary);
+            margin: 0 0 1.5rem 0;
+            line-height: 1.5;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+
+        .modal-actions .btn {
+            padding: 0.6rem 1.25rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .modal-actions .btn-accept {
+            background: var(--success);
+            color: var(--text-on-light);
+            border: none;
+        }
+
+        .modal-actions .btn-accept:hover {
+            background: #4a9d62;
+        }
+
+        .modal-actions .btn-reject {
+            background: var(--error);
+            color: var(--text-on-light);
+            border: none;
+        }
+
+        .modal-actions .btn-reject:hover {
+            background: #c43a2d;
+        }
+
+        /* Connection status indicator */
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            font-size: 0.85rem;
+        }
+
+        .connection-status .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+        }
+
+        .connection-status.connected .status-dot {
+            background: var(--success);
+            box-shadow: 0 0 4px var(--success);
+        }
+
+        .connection-status.disconnected .status-dot {
+            background: var(--error);
+            box-shadow: 0 0 4px var(--error);
+        }
     </style>
 </head>
 
@@ -962,7 +1176,7 @@
         <header>
             <div class="header-tab">
                 <h1>Local File Share</h1>
-                <p>Peer-to-peer file sharing via QR code connection</p>
+                <p>Peer-to-peer file sharing via WebSocket device discovery</p>
             </div>
         </header>
 
@@ -971,124 +1185,45 @@
             <div class="panel connection-panel">
                 <h2>Connection</h2>
 
-                <!-- 3-step progress bar: Offer → Answer → Connected -->
-                <div class="step-progress" role="list" aria-label="Connection progress">
-                    <div class="step-dot active" data-step="1" role="listitem">
-                        <div class="dot" aria-hidden="true">1</div>
-                        <div class="label">Offer</div>
-                    </div>
-                    <div class="step-line" data-line="1" aria-hidden="true"></div>
-                    <div class="step-dot" data-step="2" role="listitem">
-                        <div class="dot" aria-hidden="true">2</div>
-                        <div class="label">Answer</div>
-                    </div>
-                    <div class="step-line" data-line="2" aria-hidden="true"></div>
-                    <div class="step-dot" data-step="3" role="listitem">
-                        <div class="dot" aria-hidden="true">3</div>
-                        <div class="label">Connected</div>
+                <!-- Connection status -->
+                <div id="connectionStatus" class="connection-status disconnected">
+                    <span class="status-dot"></span>
+                    <span>Disconnected from signaling server</span>
+                </div>
+
+                <!-- Device list -->
+                <div id="deviceListContainer" class="device-list" role="list">
+                    <div class="device-list-empty">
+                        <div class="empty-icon" aria-hidden="true">🔍</div>
+                        <div>No devices found</div>
+                        <div class="empty-hint">Connect another device on the same network</div>
                     </div>
                 </div>
 
-                <!-- Step 1: Offer -->
-                <div class="step-pane" id="step1Pane">
-                    <div id="step1Idle">
-                        <div class="action-grid">
-                            <button class="btn-card" onclick="createConnection()" type="button">
-                                <span class="icon" aria-hidden="true">📤</span>
-                                <span class="title">Create Offer</span>
-                                <span class="subtitle">I'll show a QR to scan</span>
-                            </button>
-                            <button class="btn-card" onclick="scanOfferQR()" type="button">
-                                <span class="icon" aria-hidden="true">📷</span>
-                                <span class="title">Scan Offer</span>
-                                <span class="subtitle">I'll scan the other device's QR</span>
-                            </button>
+                <!-- Own device info -->
+                <div id="ownDeviceRow" class="device-list-row" style="display: none;">
+                    <span class="status-indicator"></span>
+                    <div class="device-info">
+                        <div class="device-name">
+                            <span id="ownDeviceName"></span>
+                            <span class="you-badge">You</span>
                         </div>
-                    </div>
-
-                    <div id="step1Initiator" hidden>
-                        <div id="offerQRLoading" class="qr-loading">
-                            <div class="spinner" style="width: 32px; height: 32px; margin: 0 auto;"></div>
-                            <p style="margin-top: 0.5rem; color: var(--text-secondary);">Generating QR code...</p>
-                        </div>
-                        <div id="offerQRContent" hidden>
-                            <p class="step-prompt">Show this Offer QR to the other device</p>
-                            <div class="qr-container">
-                                <canvas id="offerQRCanvas"></canvas>
-                            </div>
-                            <button class="btn-card" id="shownOfferBtn" onclick="goToStep2FromInitiator()" type="button"
-                                style="width: 100%; margin-top: 0.75rem;">
-                                <span class="title">Proceed to scan Answer QR</span>
-                            </button>
-                            <button class="btn-card" id="cancelOfferBtn" onclick="cancelOfferCreation()" type="button"
-                                style="width: 100%; margin-top: 0.5rem;">
-                                <span class="title">Cancel</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="step1Joiner" hidden>
-                        <div class="scanner-view">
-                            <video id="scannerVideo" autoplay playsinline></video>
-                            <div class="scanner-overlay"></div>
-                            <div class="scanner-guide">Point your camera at the QR</div>
-                        </div>
-                        <button class="btn-card" id="cancelScanBtn" onclick="cancelScanOffer()" type="button"
-                            style="width: 100%; margin-top: 0.75rem;">
-                            <span class="title">Cancel</span>
-                        </button>
+                        <span class="device-status">
+                            <span id="ownDeviceId" style="font-size: 0.7rem; opacity: 0.7;"></span>
+                        </span>
                     </div>
                 </div>
+            </div>
 
-                <!-- Step 2: Answer -->
-                <div class="step-pane" id="step2Pane" hidden>
-                    <div id="step2Initiator" hidden>
-                        <div class="scanner-view">
-                            <video id="answerScannerVideo" autoplay playsinline></video>
-                            <div class="scanner-overlay"></div>
-                            <div class="scanner-guide">Point your camera at the answer QR</div>
-                        </div>
-                        <button class="btn-card" onclick="cancelAnswerScan()" type="button"
-                            style="width: 100%; margin-top: 0.75rem;">
-                            <span class="title">Cancel</span>
-                        </button>
+            <!-- Connection Request Modal -->
+            <div id="connectionModalOverlay" class="modal-overlay hidden">
+                <div class="modal">
+                    <h3 id="connectionModalTitle">Connection Request</h3>
+                    <p id="connectionModalMessage">A device wants to connect to you.</p>
+                    <div class="modal-actions">
+                        <button id="connectionAcceptBtn" class="btn btn-accept" type="button">Accept</button>
+                        <button id="connectionRejectBtn" class="btn btn-reject" type="button">Reject</button>
                     </div>
-
-                    <div id="step2Joiner" hidden>
-                        <div id="answerQRLoading" class="qr-loading">
-                            <div class="spinner" style="width: 32px; height: 32px; margin: 0 auto;"></div>
-                            <p style="margin-top: 0.5rem; color: var(--text-secondary);">Processing connection...</p>
-                        </div>
-                        <div id="answerQRContent" hidden>
-                            <p class="step-prompt">Show this Answer QR to the other device</p>
-                            <div class="qr-container">
-                                <canvas id="answerQRCanvas"></canvas>
-                            </div>
-                            <p class="step-hint">Waiting for them to scan…</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Step 3: Connected -->
-                <div class="step-pane" id="step3Pane" hidden>
-                    <div class="device-cards">
-                        <div class="device-card you">
-                            <span class="badge">You</span>
-                            <span class="device-icon" aria-hidden="true">📱</span>
-                            <div class="device-info">
-                                <span class="device-name" id="myDeviceName">This device</span>
-                                <span class="device-type" id="myDeviceType"></span>
-                            </div>
-                        </div>
-                        <div class="device-card peer">
-                            <span class="device-icon" aria-hidden="true">💻</span>
-                            <div class="device-info">
-                                <span class="device-name">Peer device</span>
-                                <span class="device-type">Connected</span>
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
             </div>
 
