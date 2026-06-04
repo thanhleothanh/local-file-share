@@ -626,10 +626,30 @@ function cancelPendingConnectionRequest(deviceId) {
  * Disconnect from connected device
  * @param {string} deviceId - Device ID to disconnect from
  */
-function disconnectDevice(deviceId) {
+async function disconnectDevice(deviceId) {
   console.log('Disconnecting from device:', deviceId);
-  // TODO: Implement in Issue 006
-  showToast('Disconnect not yet implemented', 'warning');
+  
+  try {
+    // Close WebRTC connection
+    if (webrtcManager.state !== ConnectionState.CLOSED) {
+      await webrtcManager.close();
+    }
+    
+    // Send disconnect message to server
+    websocketClient.sendToDevice(deviceId, 'disconnect');
+    
+    // Clear connected device
+    connectedDevice = null;
+    
+    // Clear any pending requests for this device
+    cancelPendingConnectionRequest(deviceId);
+    
+    showToast(`Disconnected from ${devices.find(d => d.deviceId === deviceId)?.deviceName || deviceId}`, 'success');
+    updateDeviceListUI();
+  } catch (error) {
+    console.error('Error disconnecting:', error);
+    showToast(`Error disconnecting: ${error.message}`, 'error');
+  }
 }
 
 /**
