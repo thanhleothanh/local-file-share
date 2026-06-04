@@ -358,14 +358,17 @@ export class ConnectionViewModel {
     const chunkCount = Math.ceil(file.size / CHUNK_SIZE);
 
     try {
-      // Send file with waitForAck option
-      // This will wait for FILE_RECEIVED or timeout after sending all chunks
-      await this.fileSender.sendFile(file, actualFileId, waitForAck);
+      // Send all chunks without waiting for ACK
+      await this.fileSender.sendFile(file, actualFileId, false);
       this.loggerFor('FileSender').info('file chunks sent', { name: file.name, fileId: actualFileId, chunks: chunkCount });
 
       // Send TRANSFER_DONE message after all chunks are sent
-      // This is done by the FileSender when waitForAck is true, but we also do it here for safety
       this.sendTransferDone(actualFileId, chunkCount);
+
+      // Now wait for FILE_RECEIVED or timeout if waitForAck is true
+      if (waitForAck) {
+        await this.fileSender.waitForAck(actualFileId, chunkCount);
+      }
 
       this.loggerFor('FileSender').info('file transfer completed', { fileId: actualFileId });
     } catch (error) {
