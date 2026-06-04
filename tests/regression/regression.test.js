@@ -7,8 +7,6 @@ import { jest } from '@jest/globals';
 import { WebRTCManager, ConnectionState } from '@modules/webrtcManager.js';
 import { FileTransferManager } from '@modules/fileTransfer.js';
 import { ChunkHandler } from '@utils/chunkHandler.js';
-import { QRHandler } from '@modules/qrHandler.js';
-import { compressToBase64 } from '@utils/qrCompression.js';
 import { webrtcManager as webrtcManagerSingleton } from '@modules/webrtcManager.js';
 import { chunkHandler as chunkHandlerSingleton } from '@utils/chunkHandler.js';
 import { storageManager as storageManagerSingleton } from '@utils/storage.js';
@@ -387,130 +385,6 @@ describe('Regression: answerer transitions to CONNECTED from CONNECTING (existin
         controlChannel.onopen();
         dataChannel.onopen();
         expect(manager.state).toBe(ConnectionState.CONNECTED);
-    });
-});
-
-describe('Regression: QRHandler.handleScanResult', () => {
-    let handler;
-    let onResult;
-    let onError;
-
-    beforeEach(() => {
-        handler = new QRHandler();
-        onResult = jest.fn();
-        onError = jest.fn();
-        handler.scanning = true;
-    });
-
-    test('calls result.getText() (was previously broken by passing IScannerControls as the result)', () => {
-        const validQr = {
-            type: 'OFFER',
-            payload: compressToBase64({ sdp: 'x', ice: [] }),
-            secret: 'abcdefgh',
-            connId: 'conn-1',
-        };
-        const result = { getText: jest.fn(() => JSON.stringify(validQr)) };
-
-        handler.handleScanResult(result, onResult, onError);
-
-        expect(result.getText).toHaveBeenCalledTimes(1);
-        expect(onResult).toHaveBeenCalledWith(validQr);
-        expect(onError).not.toHaveBeenCalled();
-    });
-
-    test('stops scanning after a successful parse', () => {
-        const validQr = { type: 'OFFER', payload: 'p', secret: 's', connId: 'c' };
-        const result = { getText: () => JSON.stringify(validQr) };
-
-        handler.handleScanResult(result, onResult, onError);
-
-        expect(handler.scanning).toBe(false);
-    });
-
-    test('reports an error when getText throws', () => {
-        const result = {
-            getText: () => { throw new TypeError("result.getText is not a function"); },
-        };
-
-        handler.handleScanResult(result, onResult, onError);
-
-        expect(onResult).not.toHaveBeenCalled();
-        expect(onError).toHaveBeenCalledTimes(1);
-    });
-
-    test('reports an error on invalid JSON', () => {
-        const result = { getText: () => 'not-json' };
-
-        handler.handleScanResult(result, onResult, onError);
-
-        expect(onError).toHaveBeenCalledTimes(1);
-        expect(onResult).not.toHaveBeenCalled();
-    });
-
-    test('reports an error when QR data is missing required fields', () => {
-        const result = { getText: () => JSON.stringify({ type: 'OFFER' }) };
-
-        handler.handleScanResult(result, onResult, onError);
-
-        expect(onError).toHaveBeenCalledTimes(1);
-        expect(onResult).not.toHaveBeenCalled();
-    });
-});
-
-describe('Regression: QRHandler.generateQRCode returns a serialised SVG string', () => {
-    let handler;
-
-    beforeEach(() => {
-        handler = new QRHandler();
-    });
-
-    test('return value is a string, not [object SVGSVGElement]', async () => {
-        const svg = await handler.generateQRCode({ type: 'OFFER', connId: 'c' }, 100, 100);
-        expect(typeof svg).toBe('string');
-        expect(svg).not.toBe('[object SVGSVGElement]');
-    });
-
-    test('return value contains valid SVG markup', async () => {
-        const svg = await handler.generateQRCode({ type: 'OFFER', connId: 'c' }, 100, 100);
-        expect(svg).toMatch(/^<svg/);
-        expect(svg).toMatch(/<\/svg>$/);
-    });
-
-    test('writes a smaller quiet zone (MARGIN=2) so the QR modules fill more of the canvas', async () => {
-        // zxing's default quiet zone is 4 modules. We pass MARGIN=2 so
-        // the visible white padding around the modules shrinks. Pin
-        // this so a future zxing bump or accidental revert of the
-        // hints map cannot silently make the QR shrink again.
-        const writeSpy = jest.spyOn(handler.qrCodeWriter, 'write');
-        await handler.generateQRCode({ type: 'OFFER', connId: 'c' }, 200, 200);
-        const [, , , hints] = writeSpy.mock.calls[0];
-        expect(hints).toBeDefined();
-        expect(hints.get(6 /* EncodeHintType.MARGIN */)).toBe(2);
-        writeSpy.mockRestore();
-    });
-});
-
-describe('Regression: QRHandler.stopScanning halts the zxing controls', () => {
-    test('calls .stop() on the stored IScannerControls', () => {
-        const handler = new QRHandler();
-        const controls = { stop: jest.fn() };
-        handler.scanning = true;
-        handler.scannerControls = controls;
-        handler.scannerStream = { getTracks: () => [] };
-        handler.scannerVideoElement = { srcObject: 'something' };
-
-        handler.stopScanning();
-
-        expect(controls.stop).toHaveBeenCalledTimes(1);
-        expect(handler.scannerControls).toBeNull();
-        expect(handler.scanning).toBe(false);
-    });
-
-    test('no-op when neither scanning nor controls are active', () => {
-        const handler = new QRHandler();
-        handler.stopScanning();
-        expect(handler.scanning).toBe(false);
-        expect(handler.scannerControls).toBeNull();
     });
 });
 

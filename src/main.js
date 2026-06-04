@@ -1,6 +1,11 @@
 /**
  * Main Application Entry Point
- * Orchestrates the QR code connection handshake and WebRTC management
+ * Orchestrates WebSocket-based device discovery and WebRTC management
+ * (ADR-0031: WebSocket Signaling Server)
+ * 
+ * Note: QR-related functions and state are deprecated (Issue 007)
+ * and will be removed in future cleanup. Current flow uses WebSocket
+ * for device discovery and signaling.
  */
 
 import {
@@ -9,7 +14,6 @@ import {
   setFileTransferManager,
   setWebSocketClient,
 } from '@modules/webrtcManager.js';
-import { qrHandler } from '@modules/qrHandler.js';
 import { fileTransferManager, FileState } from '@modules/fileTransfer.js';
 import { chunkHandler } from '@utils/chunkHandler.js';
 import { errorHandler } from '@utils/errorHandler.js';
@@ -50,8 +54,9 @@ let pendingConnectionRequests = {}; // deviceId -> { timeoutId, timestamp }
 const CONNECTION_REQUEST_TIMEOUT = 30000; // 30 seconds
 
 // WebRTC state (kept for backward compatibility with webrtcManager)
-let connectionRole = 'idle'; // 'idle' | 'initiator' | 'joiner'
-let currentStep = 3; // Start at step 3 (connected) for now, will be updated by webrtcManager
+// Note: QR-related state variables removed (Issue 007)
+let connectionRole = 'idle'; // 'idle' | 'initiator' | 'joiner' (kept for backward compatibility)
+let currentStep = 3; // Start at step 3 (connected) for WebSocket-based flow
 
 /**
  * Format file size for display
@@ -1525,19 +1530,18 @@ function downloadFile(fileId) {
 init();
 
 // Expose handlers to window for inline onclick="..." in index.html (module scope is not global)
-window.createConnection = createConnection;
-window.scanOfferQR = scanOfferQR;
-window.scanAnswerQR = scanAnswerQR;
-window.goToStep2FromInitiator = goToStep2FromInitiator;
-window.cancelScanOffer = cancelScanOffer;
-window.cancelOfferCreation = cancelOfferCreation;
-window.cancelAnswerScan = cancelAnswerScan;
+// QR-related handlers removed (Issue 007) - replaced with WebSocket device list
 window.acceptFileOffer = acceptFileOffer;
 window.rejectFileOffer = rejectFileOffer;
 window.downloadFile = downloadFile;
 window.cancelFileOffer = cancelFileOffer;
 window.cancelQueuedFile = cancelQueuedFile;
 window.retryFile = retryFile;
+// WebSocket device list handlers
+window.connectToDevice = connectToDevice;
+window.disconnectDevice = disconnectDevice;
+window.acceptConnectionRequest = acceptConnectionRequest;
+window.rejectConnectionRequest = rejectConnectionRequest;
 
 // Wire the Files header `+` button to the hidden file input. The
 // button is `hidden` (not `disabled`) when the connection is not
@@ -1549,16 +1553,17 @@ sendFilesBtn.addEventListener('click', () => {
 
 // Export for testing
 export {
-  createConnection,
-  scanOfferQR,
-  scanAnswerQR,
-  goToStep2FromInitiator,
-  cancelScanOffer,
-  cancelOfferCreation,
-  cancelAnswerScan,
+  // QR-related functions removed (Issue 007)
+  // WebSocket device list functions
+  connectToDevice,
+  disconnectDevice,
+  acceptConnectionRequest,
+  rejectConnectionRequest,
   disconnect,
   teardownConnection,
   resetToIdle,
+  updateDeviceListUI,
+  renderDeviceList,
   updateUI,
   showToast,
   formatFileSize,

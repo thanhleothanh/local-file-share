@@ -6,9 +6,19 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { compressToBase64, decompressFromBase64, generateSecret, validateQRData } from '@utils/qrCompression.js';
 import { errorHandler } from '@utils/errorHandler.js';
 import { storageManager } from '@utils/storage.js';
+
+// QR compression utilities removed (Issue 007) - replaced with WebSocket signaling
+// Generate a simple secret for connection verification
+function generateSecret(length = 16) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
 
 // Will be set by main.js to avoid circular dependency
 let fileTransferManager = null;
@@ -155,182 +165,10 @@ export class WebRTCManager {
         }
     }
 
-    /**
-     * Generate a new offer QR code
-     * Creates a WebRTC offer and packages it into a QR code payload
-     * @returns {Promise<{qrData: Object, connId: string, secret: string}>}
-     */
-    async generateOfferQR() {
-        // Generate connection ID and secret
-        this.connectionId = uuidv4();
-        this.secret = generateSecret(16);
-        
-        // Create peer connection
-        this.peerConnection = this.createPeerConnection();
-        
-        // Setup event handlers
-        this.setupPeerConnectionHandlers();
-        
-        // Create data channels
-        await this.setupDataChannels();
-        
-        // Create offer
-        const offer = await this.peerConnection.createOffer();
-        await this.peerConnection.setLocalDescription(offer);
-        
-        // Wait for ICE candidates to be gathered
-        await this.waitForIceCandidates();
-        
-        // Get all ICE candidates
-        const iceCandidates = this.getAllIceCandidates();
-        
-        // Compress and encode
-        const payload = compressToBase64({
-            sdp: offer.sdp,
-            ice: iceCandidates
-        });
-        
-        const qrData = {
-            type: 'OFFER',
-            payload,
-            secret: this.secret,
-            connId: this.connectionId
-        };
-        
-        // Save connection to storage
-        try {
-            await storageManager.saveConnection({
-                connId: this.connectionId,
-                secret: this.secret,
-                state: ConnectionState.NEW
-            });
-        } catch (error) {
-            console.error('Failed to save connection:', error);
-            errorHandler.handleStorageError(error, { operation: 'generateOfferQR' });
-            throw error;
-        }
-        
-        // Transition to NEW state (ADR-0010)
-        await this.transitionState(ConnectionState.NEW);
-        
-        return { qrData, connId: this.connectionId, secret: this.secret };
-    }
-
-    /**
-     * Process a scanned offer QR code and generate answer QR
-     * @param {Object} qrData - Parsed QR code data
-     * @returns {Promise<{qrData: Object, connId: string, secret: string}>}
-     */
-    async processOfferQR(qrData) {
-        if (!validateQRData(qrData) || qrData.type !== 'OFFER') {
-            throw new Error('Invalid offer QR code');
-        }
-        
-        // Store connection info from offer
-        this.connectionId = qrData.connId;
-        this.secret = qrData.secret;
-        
-        // Decompress payload
-        const { sdp, ice } = decompressFromBase64(qrData.payload);
-        
-        // Create peer connection
-        this.peerConnection = this.createPeerConnection();
-        this.setupPeerConnectionHandlers();
-        
-        // Set remote description
-        await this.peerConnection.setRemoteDescription({
-            type: 'offer',
-            sdp
-        });
-
-        // Add ICE candidates from offer
-        for (const candidate of ice) {
-            await this.peerConnection.addIceCandidate(candidate);
-        }
-
-        // Answerer only listens for incoming data channels
-        await this.setupDataChannels(false);
-        
-        // Create answer
-        const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-        
-        // Wait for ICE candidates
-        await this.waitForIceCandidates();
-        
-        // Get all ICE candidates
-        const iceCandidates = this.getAllIceCandidates();
-        
-        // Compress and encode answer
-        const payload = compressToBase64({
-            sdp: answer.sdp,
-            ice: iceCandidates
-        });
-        
-        const answerQRData = {
-            type: 'ANSWER',
-            payload,
-            secret: this.secret,
-            connId: this.connectionId
-        };
-        
-        // Save connection to storage
-        try {
-            await storageManager.saveConnection({
-                connId: this.connectionId,
-                secret: this.secret,
-                state: ConnectionState.CONNECTING
-            });
-        } catch (error) {
-            console.error('Failed to save connection:', error);
-            errorHandler.handleStorageError(error, { operation: 'processOfferQR' });
-            throw error;
-        }
-        
-        // Transition to CONNECTING state
-        await this.transitionState(ConnectionState.CONNECTING);
-        
-        return { qrData: answerQRData, connId: this.connectionId, secret: this.secret };
-    }
-
-    /**
-     * Process a scanned answer QR code and complete the connection
-     * @param {Object} qrData - Parsed QR code data
-     * @returns {Promise<void>}
-     */
-    async processAnswerQR(qrData) {
-        if (!validateQRData(qrData) || qrData.type !== 'ANSWER') {
-            throw new Error('Invalid answer QR code');
-        }
-        
-        // Verify connection ID and secret match
-        if (qrData.connId !== this.connectionId) {
-            throw new Error('Connection ID mismatch: answer does not match offer');
-        }
-        
-        if (qrData.secret !== this.secret) {
-            throw new Error('Secret mismatch: answer does not match offer');
-        }
-        
-        // Decompress payload
-        const { sdp, ice } = decompressFromBase64(qrData.payload);
-        
-        // Set remote description
-        await this.peerConnection.setRemoteDescription({
-            type: 'answer',
-            sdp
-        });
-        
-        // Add ICE candidates from answer
-        for (const candidate of ice) {
-            await this.peerConnection.addIceCandidate(candidate);
-        }
-        
-        // Transition to CONNECTING state - wait for actual connection
-        // The connection will transition to CONNECTED when data channels open
-        // (handled in setupChannelHandlers)
-        await this.transitionState(ConnectionState.CONNECTING);
-    }
+    // ============================================
+    // QR Methods Removed (Issue 007)
+    // Replaced with WebSocket signaling methods below
+    // ============================================
 
     // ============================================
     // WebSocket Signaling Methods (ADR-0031, ADR-0037)
@@ -895,73 +733,6 @@ export class WebRTCManager {
             }, 60_000);
             channel.addEventListener('bufferedamountlow', onLow);
         });
-    }
-
-    /**
-     * Wait for ICE candidates to be gathered
-     * @returns {Promise<void>}
-     */
-    waitForIceCandidates() {
-        return new Promise((resolve, reject) => {
-            const timeout = 10000; // 10 seconds timeout
-            const startTime = Date.now();
-            
-            const checkCandidates = () => {
-                if (!this.peerConnection) {
-                    reject(new Error('Peer connection closed while waiting for ICE candidates'));
-                    return;
-                }
-                
-                if (this.peerConnection.iceGatheringState === 'complete') {
-                    resolve();
-                    return;
-                }
-                
-                if (Date.now() - startTime > timeout) {
-                    console.warn('ICE candidate gathering timed out after ' + timeout + 'ms');
-                    // Resolve anyway with whatever candidates we have
-                    resolve();
-                    return;
-                }
-                
-                setTimeout(checkCandidates, 100);
-            };
-            checkCandidates();
-        });
-    }
-
-    /**
-     * Get all ICE candidates from local description
-     * @returns {Array} Array of ICE candidate objects
-     */
-    getAllIceCandidates() {
-        const candidates = [];
-        const localDesc = this.peerConnection.localDescription;
-
-        if (localDesc && localDesc.sdp) {
-            const lines = localDesc.sdp.split('\n');
-            let currentMid = null;
-            let currentMLineIndex = -1;
-
-            for (const line of lines) {
-                if (line.startsWith('m=')) {
-                    currentMLineIndex++;
-                } else if (line.startsWith('a=mid:')) {
-                    currentMid = line.split(':')[1].trim();
-                } else if (line.startsWith('a=candidate:')) {
-                    candidates.push({
-                        candidate: line.substring(2),
-                        sdpMid: currentMid,
-                        sdpMLineIndex: currentMLineIndex
-                    });
-                }
-            }
-        }
-
-        candidates.push(...this.pendingIceCandidates);
-        this.pendingIceCandidates = [];
-
-        return candidates;
     }
 
     /**
