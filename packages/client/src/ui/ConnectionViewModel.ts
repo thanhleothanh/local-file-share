@@ -1,6 +1,7 @@
 import type { DeviceDescriptor, AnySignalingMessage } from '@lfs/shared';
 import { ConnectionState, ConnectionStateMachine } from '@lfs/shared';
 import type { FileState } from '../files/FileStateMachine.js';
+import { FileStateMachine } from '../files/FileStateMachine.js';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
 import { SCTPBackpressure } from '../webrtc/SCTPBackpressure.js';
@@ -54,6 +55,8 @@ export class ConnectionViewModel {
   // File state management
   private fileRegistry: FileRegistry = new FileRegistry();
   private fileQueue: FileQueue = new FileQueue();
+  // Store File objects for sending (fileId -> File)
+  private fileStore: Map<string, File> = new Map();
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -346,7 +349,7 @@ export class ConnectionViewModel {
    * Only works when in CONNECTED state and data channels are open.
    *
    * @param files - The files to send
-   * @returns Promise that resolves when all files are sent and acknowledged
+   * @returns Promise that resolves when all files are offered (not when transfers complete)
    */
   async sendFiles(files: File[]): Promise<void> {
     if (this.state.connectionState !== ConnectionState.CONNECTED || !this.controlChannel) {
@@ -357,7 +360,7 @@ export class ConnectionViewModel {
       return;
     }
 
-    // Generate file IDs for all files
+    // Generate file IDs for all files and store them
     const fileEntries: FileEntry[] = [];
     const batchId = generateUuid();
 
@@ -367,6 +370,7 @@ export class ConnectionViewModel {
       this.fileRegistry.add(entry);
       this.fileQueue.enqueue(entry);
       fileEntries.push(entry);
+      this.fileStore.set(fileId, file);
 
       // Log state transition as required
       console.info(`[FileState] ${fileId}: undefined → PENDING (OFFER)`);
@@ -396,28 +400,57 @@ export class ConnectionViewModel {
       for (const entry of fileEntries) {
         this.fileRegistry.remove(entry.fileId);
         this.fileQueue.remove(entry.fileId);
+        this.fileStore.delete(entry.fileId);
       }
       throw error;
     }
 
-    // For now, send files one at a time (queue advancement will be implemented in next iteration)
-    // TODO: Wait for FILE_ACCEPT before starting transfer
-    for (const file of files) {
-      const fileId = this.fileRegistry.getAll().find(
-        (entry) => entry.fileName === file.name && entry.fileSize === file.size,
-      )?.fileId;
-      if (fileId) {
-        // Transition to TRANSFERRING (skipping QUEUED for now)
-        this.fileRegistry.transition(fileId, 'START');
-        try {
-          await this.sendFile(file, fileId, true);
-          // On success, transition to COMPLETED
-          this.fileRegistry.transition(fileId, 'COMPLETE');
-        } catch (error) {
-          // On failure, transition to FAILED
-          this.fileRegistry.transition(fileId, 'FAIL');
-        }
-      }
+    // Don't immediately send files - wait for FILE_ACCEPT messages
+    // Queue advancement will be handled by handleFileAccept and FILE_RECEIVED
+  }
+
+  /**
+   * Start transferring a file that has been accepted.
+   * Called when FILE_ACCEPT is received and the file can start transferring.
+   */
+  private async startFileTransfer(fileId: string): Promise<void> {
+    const file = this.fileStore.get(fileId);
+    if (!file) {
+      this.loggerFor('FileSender').warn('Cannot start transfer: file not found in store', { fileId });
+      return;
+    }
+
+    // Set this file as the current transferring file in the queue
+    this.fileQueue.setCurrentFileId(fileId);
+    this.fileRegistry.transition(fileId, 'START');
+
+    try {
+      await this.sendFile(file, fileId, true);
+      // On success, the FILE_RECEIVED handler will transition to COMPLETED
+      // and advance the queue
+    } catch (error) {
+      // On failure, transition to FAILED
+      this.fileRegistry.transition(fileId, 'FAIL');
+      console.info(`[FileState] ${fileId}: TRANSFERRING → FAILED (FAIL)`);
+      // Clean up the file from the store
+      this.fileStore.delete(fileId);
+      // Advance the queue
+      this.advanceQueue();
+    }
+  }
+
+  /**
+   * Advance the queue to the next file if one is available.
+   * Called when a file completes or fails.
+   */
+  private advanceQueue(): void {
+    const nextFile = this.fileQueue.startNextFile();
+    if (nextFile && !FileStateMachine.isTerminal(nextFile.state as FileState)) {
+      // Start transferring the next file
+      this.loggerFor('FileQueue').info('advancing queue, starting next file', { fileId: nextFile.fileId });
+      void this.startFileTransfer(nextFile.fileId);
+    } else {
+      this.loggerFor('FileQueue').info('queue advanced, no more files to transfer');
     }
   }
 
@@ -826,6 +859,7 @@ export class ConnectionViewModel {
   /**
    * Handle incoming FILE_ACCEPT message.
    * Transitions the file state from PENDING to QUEUED or TRANSFERRING.
+   * If no file is currently transferring, starts the transfer immediately.
    */
   private handleFileAccept(parsed: { type: string; from: string; data?: unknown }): void {
     const data = parsed.data as { fileId: string; batchId: string } | undefined;
@@ -840,7 +874,15 @@ export class ConnectionViewModel {
     // If another file is TRANSFERRING, transition to QUEUED, else TRANSFERRING
     const transferringFiles = this.fileRegistry.getByState('TRANSFERRING');
     const event: 'START' | 'ACCEPT' = transferringFiles.length > 0 ? 'ACCEPT' : 'START';
-    this.fileRegistry.transition(data.fileId, event);
+    const transitionResult = this.fileRegistry.transition(data.fileId, event);
+
+    if (transitionResult && event === 'START') {
+      // No file is currently transferring, start this one immediately
+      void this.startFileTransfer(data.fileId);
+    } else if (transitionResult && event === 'ACCEPT') {
+      // File is queued, will be started when current transfer completes
+      console.info(`[FileState] ${data.fileId}: PENDING → QUEUED (ACCEPT)`);
+    }
   }
 
   /**
@@ -938,6 +980,13 @@ export class ConnectionViewModel {
             const data = parsed.data as { fileId: string };
             if (data.fileId) {
               this.fileSender.handleFileReceived(data.fileId);
+              // Transition the file state to COMPLETED on the sender side
+              this.fileRegistry.transition(data.fileId, 'COMPLETE');
+              console.info(`[FileState] ${data.fileId}: TRANSFERRING → COMPLETED (COMPLETE)`);
+              // Clean up the file from the store
+              this.fileStore.delete(data.fileId);
+              // Advance the queue to start the next file
+              this.advanceQueue();
             }
           }
           break;

@@ -6,7 +6,7 @@ Derived from `.docs/prds/0007-state-machines-queue-and-lifecycle.md` (FileStateM
 
 ## Status
 
-In Progress — 2026-06-04. FileStateMachine, FileQueue, and FileRegistry modules created and wired into ConnectionViewModel. Multi-file picker implemented. FILE_OFFER, FILE_ACCEPT, and FILE_REJECT message handling added. State transitions logged to console. 456 total tests pass.
+In Progress — 2026-06-04. FileStateMachine, FileQueue, and FileRegistry modules created and wired into ConnectionViewModel. Multi-file picker implemented. FILE_OFFER, FILE_ACCEPT, and FILE_REJECT message handling added. Queue advancement implemented - when a file completes, the next QUEUED file starts automatically via FileQueue.startNextFile(). State transitions logged to console. 456 total tests pass.
 
 ## What to build
 
@@ -22,8 +22,9 @@ Implemented:
 - Exports added to packages/client/src/files/index.ts
 - Unit tests for all three modules
 - FileRegistry and FileQueue instances added to ConnectionViewModel
-- sendFiles method implemented with FILE_OFFER batch message support
+- sendFiles method sends FILE_OFFER batch message and stores files for later transfer
 - FILE_OFFER, FILE_ACCEPT, FILE_REJECT message handlers added to ConnectionViewModel
+- Queue advancement: startFileTransfer, advanceQueue, and FILE_RECEIVED handler work together to automatically start next queued file
 - Multi-file picker support added to connected-card component
 - State transitions logged to console on both sender and receiver sides
 
@@ -40,7 +41,7 @@ Implemented:
 - [x] The receiver logs the receipt of each offer: `console.info('[FileState] received offer', {fileId, name, size})` and adds the file to its `FileRegistry` with state PENDING
 - [ ] Clicking a new "Accept" button (or test helper) on the receiver sends `FILE_ACCEPT`; the state transitions to QUEUED if any other file is TRANSFERRING, else TRANSFERRING (requires Files tab UI from Issue 00015)
 - [ ] While a file is TRANSFERRING, all other "Accept" buttons are disabled (requires Files tab UI from Issue 00015)
-- [ ] When a file completes, the next QUEUED file starts automatically (`FileQueue.startNextFile`) (requires integration with TransferCompletion)
+- [x] When a file completes, the next QUEUED file starts automatically (`FileQueue.startNextFile`) - implemented via startFileTransfer, advanceQueue, and FILE_RECEIVED handler
 - [ ] The sender can cancel a PENDING file via a new "Cancel" button; the receiver sees the row disappear (requires Files tab UI from Issue 00015)
 - [x] Both sides log every state transition: `console.info('[FileState] {fileId}: {oldState} → {newState} ({event})')`
 - [ ] E2E test: A and B connect; A picks 3 files; all 3 appear PENDING on B; B accepts file 2 first; files 1 and 3 have disabled Accept buttons; file 2 transfers and completes; B accepts file 1; file 1 transfers; A cancels file 3; file 3 disappears from B's list (requires Files tab UI from Issue 00015)
@@ -57,9 +58,9 @@ Implemented:
 
 ## Next steps
 
-1. Wire FileStateMachine, FileQueue, and FileRegistry into the control flow
-2. Replace "Send test file" button with multi-file picker
-3. Implement FILE_OFFER and FILE_ACCEPT message handling
-4. Implement queue advancement on file completion
-5. Add E2E tests for batch offer and queue management
-6. Integrate with TransferCompletion (Issue 00012) for full COMPLETED state convergence
+1. ~~Wire FileStateMachine, FileQueue, and FileRegistry into the control flow~~ (Done)
+2. ~~Replace "Send test file" button with multi-file picker~~ (Done)
+3. ~~Implement FILE_OFFER and FILE_ACCEPT message handling~~ (Done)
+4. ~~Implement queue advancement on file completion~~ (Done - via startFileTransfer, advanceQueue, FILE_RECEIVED handler)
+5. Add E2E tests for batch offer and queue management (requires Files tab UI from Issue 00015)
+6. ~~Integrate with TransferCompletion (Issue 00012) for full COMPLETED state convergence~~ (Done)
