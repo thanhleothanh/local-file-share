@@ -2,7 +2,7 @@
  * WebRTC Manager
  * Manages WebRTC peer connection lifecycle and data channels
  * Handles offer/answer exchange and ICE candidate gathering
- * (ADR-0002, ADR-0007, ADR-0010)
+ * (ADR-0002, ADR-0007, ADR-0010, ADR-0031, ADR-0037)
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -13,8 +13,19 @@ import { storageManager } from '@utils/storage.js';
 // Will be set by main.js to avoid circular dependency
 let fileTransferManager = null;
 
+// WebSocket client reference - will be set by main.js
+let websocketClient = null;
+
 export const setFileTransferManager = (manager) => {
     fileTransferManager = manager;
+};
+
+/**
+ * Set WebSocket client reference for WebRTC signaling
+ * @param {WebSocketClient} client - WebSocket client instance
+ */
+export const setWebSocketClient = (client) => {
+    websocketClient = client;
 };
 
 // Connection state constants (ADR-0010)
@@ -319,6 +330,300 @@ export class WebRTCManager {
         // The connection will transition to CONNECTED when data channels open
         // (handled in setupChannelHandlers)
         await this.transitionState(ConnectionState.CONNECTING);
+    }
+
+    // ============================================
+    // WebSocket Signaling Methods (ADR-0031, ADR-0037)
+    // ============================================
+
+    /**
+     * Start WebRTC connection with a specific device using WebSocket signaling
+     * This is the initiator path for WebSocket-based connection
+     * @param {string} targetDeviceId - Device ID to connect to
+     * @returns {Promise<void>}
+     */
+    async startWebSocketConnection(targetDeviceId) {
+        if (!websocketClient) {
+            throw new Error('WebSocket client not initialized');
+        }
+
+        if (this.state !== ConnectionState.CLOSED) {
+            // Close existing connection first (ADR-0017: 1:1 connections only)
+            await this.close();
+        }
+
+        console.log('Starting WebSocket connection to:', targetDeviceId);
+        
+        // Generate connection ID and secret for this connection
+        this.connectionId = uuidv4();
+        this.secret = generateSecret(16);
+
+        // Create peer connection
+        this.peerConnection = this.createPeerConnection();
+        
+        // Setup event handlers
+        this.setupPeerConnectionHandlers();
+        this.setupWebSocketSignalingHandlers(targetDeviceId);
+
+        // Create data channels (offerer creates channels)
+        await this.setupDataChannels(true);
+
+        // Create offer
+        const offer = await this.peerConnection.createOffer();
+        await this.peerConnection.setLocalDescription(offer);
+
+        // Send offer via WebSocket immediately (trickle ICE will send candidates later)
+        await this.sendOfferViaWebSocket(targetDeviceId, offer.sdp);
+
+        // Transition to CONNECTING state
+        await this.transitionState(ConnectionState.CONNECTING);
+
+        // Save connection to storage
+        try {
+            await storageManager.saveConnection({
+                connId: this.connectionId,
+                secret: this.secret,
+                state: ConnectionState.CONNECTING
+            });
+        } catch (error) {
+            console.error('Failed to save connection:', error);
+            errorHandler.handleStorageError(error, { operation: 'startWebSocketConnection' });
+        }
+    }
+
+    /**
+     * Setup WebSocket signaling event handlers
+     * @param {string} targetDeviceId - Device ID we're connecting to
+     */
+    setupWebSocketSignalingHandlers(targetDeviceId) {
+        if (!websocketClient) return;
+
+        // Handle incoming offer
+        websocketClient.on('offer', async (data) => {
+            if (data.from !== targetDeviceId) {
+                console.log('Ignoring offer from different device:', data.from);
+                return;
+            }
+            
+            console.log('Received offer via WebSocket from:', data.from);
+            await this.handleIncomingOffer(data.from, data.sdp);
+        });
+
+        // Handle incoming answer
+        websocketClient.on('answer', async (data) => {
+            if (data.from !== targetDeviceId) {
+                console.log('Ignoring answer from different device:', data.from);
+                return;
+            }
+            
+            console.log('Received answer via WebSocket from:', data.from);
+            await this.handleIncomingAnswer(data.from, data.sdp);
+        });
+
+        // Handle incoming ICE candidate (trickle ICE)
+        websocketClient.on('ice-candidate', async (data) => {
+            if (data.from !== targetDeviceId) {
+                console.log('Ignoring ICE candidate from different device:', data.from);
+                return;
+            }
+            
+            console.log('Received ICE candidate via WebSocket from:', data.from);
+            await this.handleIncomingIceCandidate(data);
+        });
+    }
+
+    /**
+     * Send SDP offer via WebSocket
+     * @param {string} targetDeviceId - Target device ID
+     * @param {string} sdp - SDP offer string
+     */
+    async sendOfferViaWebSocket(targetDeviceId, sdp) {
+        if (!websocketClient) {
+            throw new Error('WebSocket client not initialized');
+        }
+
+        const message = {
+            type: 'offer',
+            to: targetDeviceId,
+            sdp: sdp,
+            connId: this.connectionId,
+            secret: this.secret
+        };
+
+        const success = websocketClient.send(message);
+        if (!success) {
+            console.warn('Failed to send offer via WebSocket (not connected)');
+            throw new Error('WebSocket not connected');
+        }
+        
+        console.log('Sent SDP offer via WebSocket to:', targetDeviceId);
+    }
+
+    /**
+     * Send SDP answer via WebSocket
+     * @param {string} targetDeviceId - Target device ID
+     * @param {string} sdp - SDP answer string
+     */
+    async sendAnswerViaWebSocket(targetDeviceId, sdp) {
+        if (!websocketClient) {
+            throw new Error('WebSocket client not initialized');
+        }
+
+        const message = {
+            type: 'answer',
+            to: targetDeviceId,
+            sdp: sdp,
+            connId: this.connectionId,
+            secret: this.secret
+        };
+
+        const success = websocketClient.send(message);
+        if (!success) {
+            console.warn('Failed to send answer via WebSocket (not connected)');
+            throw new Error('WebSocket not connected');
+        }
+        
+        console.log('Sent SDP answer via WebSocket to:', targetDeviceId);
+    }
+
+    /**
+     * Send ICE candidate via WebSocket (trickle ICE per ADR-0037)
+     * @param {string} targetDeviceId - Target device ID
+     * @param {Object} candidate - ICE candidate object
+     */
+    async sendIceCandidateViaWebSocket(targetDeviceId, candidate) {
+        if (!websocketClient) {
+            console.warn('WebSocket client not initialized, cannot send ICE candidate');
+            return;
+        }
+
+        const message = {
+            type: 'ice-candidate',
+            to: targetDeviceId,
+            candidate: candidate.candidate,
+            sdpMid: candidate.sdpMid,
+            sdpMLineIndex: candidate.sdpMLineIndex,
+            connId: this.connectionId
+        };
+
+        const success = websocketClient.send(message);
+        if (!success) {
+            console.warn('Failed to send ICE candidate via WebSocket (not connected)');
+            // Queue candidate for later
+            this.pendingIceCandidates.push(candidate);
+        } else {
+            console.log('Sent ICE candidate via WebSocket to:', targetDeviceId);
+        }
+    }
+
+    /**
+     * Handle incoming SDP offer via WebSocket
+     * This is the answerer path for WebSocket-based connection
+     * @param {string} fromDeviceId - Device ID that sent the offer
+     * @param {string} sdp - SDP offer string
+     */
+    async handleIncomingOffer(fromDeviceId, sdp) {
+        console.log('Handling incoming offer from:', fromDeviceId);
+
+        // Store connection info
+        this.connectionId = uuidv4(); // Generate new connection ID for answerer
+        this.secret = generateSecret(16);
+
+        // Create peer connection
+        this.peerConnection = this.createPeerConnection();
+        this.setupPeerConnectionHandlers();
+        this.setupWebSocketSignalingHandlers(fromDeviceId);
+
+        // Set remote description
+        await this.peerConnection.setRemoteDescription({
+            type: 'offer',
+            sdp: sdp
+        });
+
+        // Answerer only listens for incoming data channels
+        await this.setupDataChannels(false);
+
+        // Create answer
+        const answer = await this.peerConnection.createAnswer();
+        await this.peerConnection.setLocalDescription(answer);
+
+        // Send answer via WebSocket immediately
+        await this.sendAnswerViaWebSocket(fromDeviceId, answer.sdp);
+
+        // Transition to CONNECTING state
+        await this.transitionState(ConnectionState.CONNECTING);
+
+        // Save connection to storage
+        try {
+            await storageManager.saveConnection({
+                connId: this.connectionId,
+                secret: this.secret,
+                state: ConnectionState.CONNECTING
+            });
+        } catch (error) {
+            console.error('Failed to save connection:', error);
+            errorHandler.handleStorageError(error, { operation: 'handleIncomingOffer' });
+        }
+    }
+
+    /**
+     * Handle incoming SDP answer via WebSocket
+     * @param {string} fromDeviceId - Device ID that sent the answer
+     * @param {string} sdp - SDP answer string
+     */
+    async handleIncomingAnswer(fromDeviceId, sdp) {
+        console.log('Handling incoming answer from:', fromDeviceId);
+
+        // Set remote description
+        await this.peerConnection.setRemoteDescription({
+            type: 'answer',
+            sdp: sdp
+        });
+
+        // Transition to CONNECTING state - wait for actual connection
+        // The connection will transition to CONNECTED when data channels open
+        await this.transitionState(ConnectionState.CONNECTING);
+    }
+
+    /**
+     * Handle incoming ICE candidate via WebSocket
+     * @param {Object} data - ICE candidate data
+     */
+    async handleIncomingIceCandidate(data) {
+        if (!this.peerConnection) {
+            console.warn('Peer connection not initialized, cannot add ICE candidate');
+            return;
+        }
+
+        try {
+            await this.peerConnection.addIceCandidate({
+                candidate: data.candidate,
+                sdpMid: data.sdpMid,
+                sdpMLineIndex: data.sdpMLineIndex
+            });
+            console.log('Added ICE candidate from:', data.from);
+        } catch (error) {
+            console.error('Failed to add ICE candidate:', error);
+        }
+    }
+
+    /**
+     * Modified ICE candidate handler for WebSocket signaling (trickle ICE per ADR-0037)
+     * Sends ICE candidates as they are gathered instead of waiting for completion
+     */
+    setupWebSocketIceCandidateHandler(targetDeviceId) {
+        if (!this.peerConnection) return;
+
+        this.peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                // Send ICE candidate immediately via WebSocket (trickle ICE)
+                this.sendIceCandidateViaWebSocket(targetDeviceId, {
+                    candidate: event.candidate.candidate,
+                    sdpMid: event.candidate.sdpMid,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex
+                });
+            }
+        };
     }
 
     /**

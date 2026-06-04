@@ -7,6 +7,7 @@ import {
   webrtcManager,
   ConnectionState,
   setFileTransferManager,
+  setWebSocketClient,
 } from '@modules/webrtcManager.js';
 import { qrHandler } from '@modules/qrHandler.js';
 import { fileTransferManager, FileState } from '@modules/fileTransfer.js';
@@ -558,7 +559,7 @@ function updateDeviceListUI() {
  * Connect to a specific device
  * @param {string} deviceId - Device ID to connect to
  */
-function connectToDevice(deviceId) {
+async function connectToDevice(deviceId) {
   console.log('Connecting to device:', deviceId);
   const device = devices.find(d => d.deviceId === deviceId);
   if (device) {
@@ -583,6 +584,10 @@ function connectToDevice(deviceId) {
     
     // Update UI to show pending state
     updateDeviceListUI();
+    
+    // Wait for the other device to accept before starting WebRTC
+    // The acceptance will be received via WebSocket
+    // Once accepted, we'll start the WebRTC handshake
   }
 }
 
@@ -650,7 +655,10 @@ function acceptConnectionRequest() {
   if (pendingConnectionRequest) {
     const { deviceId, deviceName } = pendingConnectionRequest;
     console.log('Accepting connection from:', deviceName);
+    
+    // Send acceptance via WebSocket
     websocketClient.sendToDevice(deviceId, 'accept-connect');
+    
     hideConnectionModal();
     showToast(`Connection accepted with ${deviceName}`, 'success');
     
@@ -658,7 +666,10 @@ function acceptConnectionRequest() {
     connectedDevice = { deviceId, deviceName };
     updateDeviceListUI();
     
-    // TODO: Start WebRTC handshake (Issue 005)
+    // Start WebRTC handshake as answerer (will receive offer from initiator)
+    // The offerer (initiator) will start the connection and send the offer
+    // So we just need to wait for the offer to arrive
+    console.log('Waiting for WebRTC offer from:', deviceName);
   }
 }
 
@@ -1162,6 +1173,9 @@ async function init() {
 
     // Set file transfer manager reference in webrtcManager (to avoid circular dependency)
     setFileTransferManager(fileTransferManager);
+    
+    // Set WebSocket client reference in webrtcManager for WebSocket signaling
+    setWebSocketClient(websocketClient);
 
     // Initialize file transfer and chunk handlers (subscribes to webrtcManager events)
     fileTransferManager.init();
@@ -1257,7 +1271,7 @@ function setupWebSocketListeners() {
   });
 
   // Connection accepted
-  websocketClient.on('connect-accepted', ({ fromDeviceId, fromDeviceName }) => {
+  websocketClient.on('connect-accepted', async ({ fromDeviceId, fromDeviceName }) => {
     console.log('Connection accepted by:', fromDeviceName);
     showToast(`Connection accepted by ${fromDeviceName}`, 'success');
     
@@ -1268,7 +1282,17 @@ function setupWebSocketListeners() {
     connectedDevice = { deviceId: fromDeviceId, deviceName: fromDeviceName };
     updateDeviceListUI();
     
-    // TODO: Start WebRTC handshake (Issue 005)
+    // Start WebRTC handshake as initiator
+    try {
+      await webrtcManager.startWebSocketConnection(fromDeviceId);
+      console.log('WebRTC handshake started with:', fromDeviceName);
+    } catch (error) {
+      console.error('Failed to start WebRTC handshake:', error);
+      showToast(`Failed to connect: ${error.message}`, 'error');
+      // Clear connected device on failure
+      connectedDevice = null;
+      updateDeviceListUI();
+    }
   });
 
   // Connection rejected
@@ -1283,19 +1307,48 @@ function setupWebSocketListeners() {
   });
 
   // WebRTC signaling messages
-  websocketClient.on('offer', (data) => {
+  websocketClient.on('offer', async (data) => {
     console.log('Received WebRTC offer from:', data.from);
-    // TODO: Handle offer via webrtcManager (Issue 005)
+    // Check if this is for the currently connected device
+    if (connectedDevice && connectedDevice.deviceId === data.from) {
+      try {
+        await webrtcManager.handleIncomingOffer(data.from, data.sdp);
+      } catch (error) {
+        console.error('Failed to handle incoming offer:', error);
+        showToast(`Failed to handle offer from ${data.from}: ${error.message}`, 'error');
+      }
+    } else {
+      console.log('Ignoring offer from non-connected device:', data.from);
+    }
   });
 
-  websocketClient.on('answer', (data) => {
+  websocketClient.on('answer', async (data) => {
     console.log('Received WebRTC answer from:', data.from);
-    // TODO: Handle answer via webrtcManager (Issue 005)
+    // Check if this is for the currently connected device
+    if (connectedDevice && connectedDevice.deviceId === data.from) {
+      try {
+        await webrtcManager.handleIncomingAnswer(data.from, data.sdp);
+      } catch (error) {
+        console.error('Failed to handle incoming answer:', error);
+        showToast(`Failed to handle answer from ${data.from}: ${error.message}`, 'error');
+      }
+    } else {
+      console.log('Ignoring answer from non-connected device:', data.from);
+    }
   });
 
-  websocketClient.on('ice-candidate', (data) => {
+  websocketClient.on('ice-candidate', async (data) => {
     console.log('Received ICE candidate from:', data.from);
-    // TODO: Handle ICE candidate via webrtcManager (Issue 005)
+    // Check if this is for the currently connected device
+    if (connectedDevice && connectedDevice.deviceId === data.from) {
+      try {
+        await webrtcManager.handleIncomingIceCandidate(data);
+      } catch (error) {
+        console.error('Failed to handle incoming ICE candidate:', error);
+      }
+    } else {
+      console.log('Ignoring ICE candidate from non-connected device:', data.from);
+    }
   });
 
   // Connection status
