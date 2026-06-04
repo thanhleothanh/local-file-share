@@ -597,14 +597,29 @@ export class WebRTCManager {
      * @returns {Promise<void>}
      */
     waitForIceCandidates() {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+            const timeout = 10000; // 10 seconds timeout
+            const startTime = Date.now();
+            
             const checkCandidates = () => {
-                if (this.peerConnection && 
-                    this.peerConnection.iceGatheringState === 'complete') {
-                    resolve();
-                } else {
-                    setTimeout(checkCandidates, 100);
+                if (!this.peerConnection) {
+                    reject(new Error('Peer connection closed while waiting for ICE candidates'));
+                    return;
                 }
+                
+                if (this.peerConnection.iceGatheringState === 'complete') {
+                    resolve();
+                    return;
+                }
+                
+                if (Date.now() - startTime > timeout) {
+                    console.warn('ICE candidate gathering timed out after ' + timeout + 'ms');
+                    // Resolve anyway with whatever candidates we have
+                    resolve();
+                    return;
+                }
+                
+                setTimeout(checkCandidates, 100);
             };
             checkCandidates();
         });
