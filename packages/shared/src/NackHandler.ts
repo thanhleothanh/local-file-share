@@ -5,6 +5,7 @@
 
 import type { ChunkCache } from './ChunkCache.js';
 import type { ChunkRequestNackData, ChunkRequestNackMessage } from './ControlMessageTypes.js';
+import { MAX_NACK_ROUNDS } from './Constants.js';
 
 /**
  * Interface for a sender that can retransmit chunks.
@@ -19,11 +20,6 @@ export interface ChunkSender {
    */
   sendChunk(fileId: string, index: number, data: ArrayBuffer): Promise<void>;
 }
-
-/**
- * Maximum number of NACK rounds before marking a file as FAILED.
- */
-export const MAX_NACK_ROUNDS = 3;
 
 /**
  * Handler for CHUNK_REQUEST_NACK messages.

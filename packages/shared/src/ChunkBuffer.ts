@@ -80,15 +80,13 @@ export class DefaultChunkBuffer implements ChunkBuffer {
   // fileId -> Map of index -> ArrayBuffer
   private readonly buffers: Map<string, Map<number, ArrayBuffer>> = new Map();
 
-  add(fileId: string, index: number, data: ArrayBuffer, isLast: boolean): void {
+  add(fileId: string, index: number, data: ArrayBuffer, _isLast: boolean): void {
     let fileChunks = this.buffers.get(fileId);
     if (!fileChunks) {
       fileChunks = new Map();
       this.buffers.set(fileId, fileChunks);
     }
     fileChunks.set(index, data);
-    // isLast is stored for informational purposes but not used in the current implementation
-    // The total chunks should be provided by the caller (from FILE_OFFER message)
   }
 
   hasAllIndices(fileId: string, totalChunks: number): boolean {
@@ -181,7 +179,6 @@ export class DefaultChunkBuffer implements ChunkBuffer {
    */
   clear(): void {
     this.buffers.clear();
-    this.totalChunksMap.clear();
   }
 }
 

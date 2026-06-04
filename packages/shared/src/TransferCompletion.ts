@@ -4,8 +4,8 @@
  * On the receiver side: runs integrity check after TRANSFER_DONE and sends the appropriate response.
  */
 
-import type { ChunkBuffer } from './ChunkBuffer.js';
 import type { FileIntegrityChecker } from './FileIntegrityChecker.js';
+import { MAX_NACK_ROUNDS } from './Constants.js';
 
 /**
  * Error thrown when the sender times out waiting for FILE_RECEIVED.
@@ -167,7 +167,6 @@ export class ReceiverTransferCompletion {
   private readonly integrityChecker: FileIntegrityChecker;
   private readonly localDeviceId: string;
   private readonly nackRounds: Map<string, number> = new Map();
-  private readonly MAX_NACK_ROUNDS = 3;
 
   constructor(
     controlChannel: ControlChannelSender,
@@ -192,7 +191,7 @@ export class ReceiverTransferCompletion {
     const currentRound = this.nackRounds.get(fileId) ?? 0;
 
     // Check if we've exceeded the maximum NACK rounds
-    if (currentRound >= this.MAX_NACK_ROUNDS) {
+    if (currentRound >= MAX_NACK_ROUNDS) {
       console.warn('[ReceiverTransferCompletion] Maximum NACK rounds exceeded, file should be marked FAILED', { fileId, round: currentRound });
       return false;
     }

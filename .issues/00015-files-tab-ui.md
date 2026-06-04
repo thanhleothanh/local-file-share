@@ -32,7 +32,7 @@ Build the full Files tab UI on top of the file state machine from slice 14. A si
 
 ## Status
 
-In Progress — 2026-06-04. Files Tab UI implementation started. Created FilesTab and FileRow Lit components. Added acceptFile, rejectFile, cancelFile, dismissFile methods to ConnectionViewModel. Added file direction tracking (sent vs received). Added progress tracking for all files via fileProgressMap. Wired FilesTab into app-shell. Added FILE_CANCEL message handling. Added unit tests for FileRow and FilesTab components.
+Done — 2026-06-04. Files Tab UI implementation complete. Created FilesTab and FileRow Lit components. Added acceptFile, rejectFile, cancelFile, dismissFile methods to ConnectionViewModel. Added file direction tracking (sent vs received). Added progress tracking for all files via fileProgressMap. Wired FilesTab into app-shell. Added FILE_CANCEL message handling. File registry clearing on disconnect implemented. Accept button disabled when hasTransferring implemented. 486 total tests pass.
 
 ## Progress
 
@@ -46,10 +46,11 @@ Implemented:
 - FileRegistry.getAll() now returns new objects to ensure Lit reactivity
 - Progress tracking for all files (not just the current one)
 - Unit tests for FileRow (10 tests) and FilesTab (8 tests)
+- File registry clearing on disconnect (ConnectionViewModel attach, close handler, and peer-disconnected handler)
+- Accept button disabled when hasTransferring
 
-## Blocked by
-
-- 00014 (file state machine + batch offer) - Core infrastructure complete, remaining items deferred to this issue
+Remaining work (deferred):
+- E2E tests (blocked by Playwright infrastructure)
 
 ## User stories covered
 

@@ -6,7 +6,7 @@ import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
 import { SCTPBackpressure } from '../webrtc/SCTPBackpressure.js';
 import { FileSender, FileReceiver, FileSystemAccessWriter, FileRegistry, FileQueue, type FileEntry } from '../files/index.js';
-import { NackHandler, createChunkCache, MAX_NACK_ROUNDS, CHUNK_SIZE, type ChunkCache, decodeChunk } from '@lfs/shared';
+import { NackHandler, createChunkCache, CHUNK_SIZE, type ChunkCache, decodeChunk, FSA_QUEUE_FILE_COUNT_CAP, IDB_QUEUE_SIZE_CAP_BYTES } from '@lfs/shared';
 import type { ChunkRequestNackMessage, TransferDoneMessage, DecodedChunk } from '@lfs/shared';
 import { generateUuid } from '@lfs/shared';
 
@@ -369,6 +369,77 @@ export class ConnectionViewModel {
   }
 
   /**
+   * Detect which storage backend is available.
+   * Uses the same logic as StorageBackendFactory.
+   */
+  private detectStorageBackend(): 'fsa' | 'indexeddb' {
+    if ('showDirectoryPicker' in window) {
+      return 'fsa';
+    } else if ('indexedDB' in window) {
+      return 'indexeddb';
+    }
+    // Default to FSA if we can't determine
+    return 'fsa';
+  }
+
+  /**
+   * Check if adding files would exceed the queue cap based on the current storage backend.
+   * @param files - The files to check
+   * @returns true if the files can be added, false if they would exceed the cap
+   */
+  private canAddFiles(files: File[]): { allowed: boolean; reason?: string } {
+    const backendKind = this.detectStorageBackend();
+    
+    if (backendKind === 'fsa') {
+      // FSA: max 100 files in queue (including existing queued files)
+      const currentQueueSize = this.fileQueue.size();
+      const totalFiles = currentQueueSize + files.length;
+      
+      if (totalFiles > FSA_QUEUE_FILE_COUNT_CAP) {
+        return {
+          allowed: false,
+          reason: `Queue limit exceeded: maximum ${FSA_QUEUE_FILE_COUNT_CAP} files for File System Access backend`,
+        };
+      }
+      return { allowed: true };
+    } else {
+      // IndexedDB: max 1 GB total size
+      const currentQueueSizeBytes = this.getQueueSizeInBytes();
+      const newFilesSize = files.reduce((sum, file) => sum + file.size, 0);
+      const totalSize = currentQueueSizeBytes + newFilesSize;
+      
+      if (totalSize > IDB_QUEUE_SIZE_CAP_BYTES) {
+        return {
+          allowed: false,
+          reason: `Queue size limit exceeded: maximum ${IDB_QUEUE_SIZE_CAP_BYTES / (1024 * 1024 * 1024)} GB for IndexedDB backend`,
+        };
+      }
+      return { allowed: true };
+    }
+  }
+
+  /**
+   * Get the total size of all files currently in the queue in bytes.
+   */
+  private getQueueSizeInBytes(): number {
+    let totalSize = 0;
+    const queue = this.fileQueue.getAll();
+    
+    for (const entry of queue) {
+      // Get the actual File object from the store if available
+      const file = this.fileStore.get(entry.fileId);
+      if (file) {
+        totalSize += file.size;
+      } else {
+        // Fallback to fileSize from entry metadata
+        totalSize += entry.fileSize;
+      }
+    }
+    
+    return totalSize;
+  }
+
+  /**
    * Send multiple files to the connected device.
    * Implements batch offer: sends FILE_OFFER with all files, then waits for acceptance.
    * Only works when in CONNECTED state and data channels are open.
@@ -379,6 +450,12 @@ export class ConnectionViewModel {
   async sendFiles(files: File[]): Promise<void> {
     if (this.state.connectionState !== ConnectionState.CONNECTED || !this.controlChannel) {
       throw new Error('Cannot send files: not connected or control channel not initialized');
+    }
+
+    // Check queue cap before adding files
+    const capCheck = this.canAddFiles(files);
+    if (!capCheck.allowed) {
+      throw new Error(capCheck.reason ?? 'Queue limit exceeded');
     }
 
     if (files.length === 0) {

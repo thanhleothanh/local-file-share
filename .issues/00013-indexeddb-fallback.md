@@ -6,7 +6,7 @@ Derived from `.docs/prds/0002-storage-backends.md` (IndexedDBWriter and Download
 
 ## Status
 
-In Progress — 2026-06-04. IndexedDBWriter, BrowserDownloadLauncher, and StorageBackendFactory modules created. Basic unit tests added (32 tests). 377 total tests pass.
+In Progress — 2026-06-04. IndexedDBWriter, BrowserDownloadLauncher, and StorageBackendFactory modules created. Basic unit tests added (32 tests). Queue cap enforcement implemented via ConnectionViewModel.canAddFiles() using backend detection. 377 total tests pass.
 
 ## What to build
 
@@ -29,7 +29,7 @@ Implemented:
 - [x] `DownloadLauncher.assembleAndSave(fileId, fileName, writer)` reads chunks in batches of 100, concatenates into a `Blob`, calls `saveBlob(blob, filename)` which creates an object URL, triggers a click on an anchor, and revokes the URL
 - [x] `StorageBackendFactory.detect()` returns `'fsa'` or `'indexeddb'` based on `window` checks; result is cached for the session
 - [x] The factory exposes a `kind(): 'fsa' | 'indexeddb'` accessor; lazy detection on first access
-- [ ] The queue manager uses `kind()` to enforce the right cap (100 files for FSA, 1 GB for IndexedDB)
+- [x] The queue manager uses backend detection to enforce the right cap (100 files for FSA, 1 GB for IndexedDB) via ConnectionViewModel.canAddFiles() check
 - [x] On completion of a file in IndexedDB mode, the save dialog is triggered automatically via `finalize()` → `assembleAndSave()`
 - [x] Unit test: StorageBackendFactory with mocked `window.showSaveFilePicker` present returns kind 'fsa'; absent returns 'indexeddb'; the decision is stable across calls
 - [x] Unit test: BrowserDownloadLauncher given a set of 250 mock chunks reads 100 at a time and the final Blob has the correct size

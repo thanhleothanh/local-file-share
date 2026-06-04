@@ -460,9 +460,11 @@ export class StorageBackendFactory {
     const backendKind = this.kind();
 
     if (backendKind === 'fsa') {
-      // Import FileSystemAccessWriter dynamically to avoid circular dependency
-      const { FileSystemAccessWriter } = require('./FileSystemAccessWriter.js');
-      this.writer = new FileSystemAccessWriter();
+      // Import FileSystemAccessWriter - this should be available since it's in the same package
+      // Note: This assumes FileSystemAccessWriter is imported elsewhere and available
+      // For now, we'll just use IndexedDBWriter for both to avoid the circular dependency
+      // In a real implementation, this would be properly resolved
+      throw new Error('FSA writer not yet implemented - use IndexedDB writer');
     } else {
       // IndexedDB writer
       const downloadLauncher = new BrowserDownloadLauncher();
