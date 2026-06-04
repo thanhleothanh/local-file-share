@@ -9,3 +9,6 @@ export * from './ControlMessageTypes.js';
 export * from './ChunkCodec.js';
 export * from './ChunkCache.js';
 export * from './AckHandler.js';
+export * from './ChunkBuffer.js';
+export * from './FileIntegrityChecker.js';
+export * from './NackHandler.js';
