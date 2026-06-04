@@ -1,12 +1,15 @@
 {
   "name": "local-file-share",
   "version": "1.0.0",
-  "description": "Peer-to-peer file sharing via QR code connection",
+  "description": "Peer-to-peer file sharing via WebSocket device discovery",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"vite\" \"node server.js --dev\"",
+    "dev:vite": "vite",
+    "dev:server": "node server.js",
     "build": "vite build",
     "preview": "vite preview",
+    "start": "node server.js",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
     "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage"
@@ -15,7 +18,10 @@
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.0",
     "pako": "^2.1.0",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "express": "^4.18.2",
+    "ws": "^8.15.1",
+    "random-words": "^2.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
@@ -23,6 +29,7 @@
     "@jest/globals": "^30.4.1",
     "@types/jest": "^30.0.0",
     "canvas": "^3.2.3",
+    "concurrently": "^8.2.2",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "jsdom": "^29.1.1",

@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite'
-import mkcert from 'vite-plugin-mkcert'
+// import mkcert from 'vite-plugin-mkcert'
 import { fileURLToPath, URL } from 'node:url'
+
+// Note: mkcert disabled for Docker compatibility (ADR-0033)
+// In development, use HTTPS via mkcert if needed
+// const plugins = process.env.NODE_ENV === 'production' ? [] : [mkcert()];
 
 export default defineConfig({
   root: '.',
   publicDir: 'public',
-  plugins: [mkcert()],
+  plugins: [],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -15,6 +19,13 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: true
+    host: true,
+    // Proxy WebSocket requests to the Express server in development
+    proxy: {
+      '/ws': {
+        target: 'ws://localhost:3001',
+        ws: true,
+      },
+    },
   }
 })
