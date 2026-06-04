@@ -14,6 +14,7 @@ import { chunkHandler } from '@utils/chunkHandler.js';
 import { errorHandler } from '@utils/errorHandler.js';
 import { storageManager } from '@utils/storage.js';
 import { toastManager } from '@utils/toast.js';
+import { websocketClient } from '@modules/websocketClient.js';
 
 // DOM Elements
 const loadingIndicator = document.getElementById('loadingIndicator');
@@ -952,6 +953,23 @@ async function init() {
       console.warn('WebRTC manager initialization failed:', error);
     }
 
+    // Initialize WebSocket client and connect to signaling server
+    try {
+      // Log device info
+      console.log('Device ID:', websocketClient.getDeviceId());
+      console.log('Device Name:', websocketClient.getDeviceName());
+      
+      // Connect to WebSocket server
+      websocketClient.connect();
+      
+      // Setup WebSocket event listeners
+      setupWebSocketListeners();
+      
+      console.log('WebSocket client initialized');
+    } catch (error) {
+      console.warn('WebSocket client initialization failed:', error);
+    }
+
     // Setup error handler
     errorHandler.on('showError', ({ message, type }) => {
       showToast(message, type);
@@ -973,6 +991,76 @@ async function init() {
     showToast('Failed to initialize application: ' + error.message, 'error');
     console.error('Initialization error:', error);
   }
+}
+
+/**
+ * Setup WebSocket event listeners
+ */
+function setupWebSocketListeners() {
+  // Device list updates
+  websocketClient.on('device-list', (devices) => {
+    console.log('Device list updated:', devices);
+    // TODO: Update device list UI (Issue 003)
+  });
+
+  // Device disconnected
+  websocketClient.on('device-disconnected', (deviceId) => {
+    console.log('Device disconnected:', deviceId);
+    // TODO: Update device list UI (Issue 003)
+  });
+
+  // Connection request received
+  websocketClient.on('connect-request', ({ fromDeviceId, fromDeviceName }) => {
+    console.log('Connection request from:', fromDeviceName, '(', fromDeviceId, ')');
+    showToast(`${fromDeviceName} wants to connect to you`, 'info');
+    // TODO: Show modal dialog for accept/reject (Issue 004)
+  });
+
+  // Connection accepted
+  websocketClient.on('connect-accepted', ({ fromDeviceId, fromDeviceName }) => {
+    console.log('Connection accepted by:', fromDeviceName);
+    showToast(`Connection accepted by ${fromDeviceName}`, 'success');
+    // TODO: Start WebRTC handshake (Issue 005)
+  });
+
+  // Connection rejected
+  websocketClient.on('connect-rejected', ({ fromDeviceId, fromDeviceName, reason }) => {
+    console.log('Connection rejected by:', fromDeviceName, 'Reason:', reason);
+    showToast(`${fromDeviceName} rejected the connection` + (reason ? `: ${reason}` : ''), 'error');
+    // TODO: Update UI to show rejection
+  });
+
+  // WebRTC signaling messages
+  websocketClient.on('offer', (data) => {
+    console.log('Received WebRTC offer from:', data.from);
+    // TODO: Handle offer via webrtcManager (Issue 005)
+  });
+
+  websocketClient.on('answer', (data) => {
+    console.log('Received WebRTC answer from:', data.from);
+    // TODO: Handle answer via webrtcManager (Issue 005)
+  });
+
+  websocketClient.on('ice-candidate', (data) => {
+    console.log('Received ICE candidate from:', data.from);
+    // TODO: Handle ICE candidate via webrtcManager (Issue 005)
+  });
+
+  // Connection status
+  websocketClient.on('connected', () => {
+    console.log('WebSocket connected to signaling server');
+    showToast('Connected to signaling server', 'success');
+  });
+
+  websocketClient.on('disconnected', ({ code, reason }) => {
+    console.log('WebSocket disconnected:', code, reason);
+    showToast('Disconnected from signaling server. Reconnecting...', 'warning');
+  });
+
+  websocketClient.on('error', (error) => {
+    console.error('WebSocket error:', error);
+    showToast('WebSocket error: ' + error.message, 'error');
+  });
 }
 
 /**
