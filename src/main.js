@@ -44,6 +44,10 @@ const fileList = document.getElementById('fileList');
 let devices = []; // List of connected devices from WebSocket
 let connectedDevice = null; // Currently connected device
 
+// Connection request timeout tracking (ADR-0038)
+let pendingConnectionRequests = {}; // deviceId -> { timeoutId, timestamp }
+const CONNECTION_REQUEST_TIMEOUT = 30000; // 30 seconds
+
 // WebRTC state (kept for backward compatibility with webrtcManager)
 let connectionRole = 'idle'; // 'idle' | 'initiator' | 'joiner'
 let currentStep = 3; // Start at step 3 (connected) for now, will be updated by webrtcManager
@@ -506,19 +510,33 @@ function renderDeviceList() {
     // Render device list
     const deviceRows = otherDevices.map(device => {
       const isConnected = connectedDevice && connectedDevice.deviceId === device.deviceId;
+      const isPending = pendingConnectionRequests[device.deviceId];
+      
+      let statusText = escapeHtml(device.deviceId.slice(0, 8));
+      if (isPending) {
+        statusText = 'Pending connection...';
+      } else if (isConnected) {
+        statusText = 'Connected';
+      }
+      
+      let actionButton = '';
+      if (isConnected) {
+        actionButton = `<button class="btn-disconnect" onclick="disconnectDevice('${device.deviceId}')">Disconnect</button>`;
+      } else if (isPending) {
+        actionButton = `<button class="btn-connect" disabled>Waiting...</button>`;
+      } else {
+        actionButton = `<button class="btn-connect" onclick="connectToDevice('${device.deviceId}')">Connect</button>`;
+      }
+      
       return `
         <div class="device-list-row" data-device-id="${device.deviceId}">
           <span class="status-indicator"></span>
           <div class="device-info">
             <div class="device-name">${escapeHtml(device.deviceName)}</div>
-            <span class="device-status">${escapeHtml(device.deviceId.slice(0, 8))}</span>
+            <span class="device-status">${statusText}</span>
           </div>
           <div class="device-actions">
-            ${isConnected ? `
-              <button class="btn-disconnect" onclick="disconnectDevice('${device.deviceId}')">Disconnect</button>
-            ` : `
-              <button class="btn-connect" onclick="connectToDevice('${device.deviceId}')">Connect</button>
-            `}
+            ${actionButton}
           </div>
         </div>
       `;
@@ -544,11 +562,58 @@ function connectToDevice(deviceId) {
   console.log('Connecting to device:', deviceId);
   const device = devices.find(d => d.deviceId === deviceId);
   if (device) {
+    // Check if already connected (1:1 only per ADR-0017)
+    if (connectedDevice) {
+      showToast('Already connected to another device', 'warning');
+      return;
+    }
+
     showToast(`Connecting to ${device.deviceName}...`, 'info');
+    
     // Send connection request via WebSocket
     websocketClient.sendToDevice(deviceId, 'request-connect');
     
-    // TODO: Start timeout (ADR-0038) - will be implemented in Issue 004
+    // Set timeout for connection request (ADR-0038)
+    const timeoutId = setTimeout(() => {
+      handleConnectionRequestTimeout(deviceId, device.deviceName);
+    }, CONNECTION_REQUEST_TIMEOUT);
+    
+    // Store pending request
+    pendingConnectionRequests[deviceId] = { timeoutId, timestamp: Date.now() };
+    
+    // Update UI to show pending state
+    updateDeviceListUI();
+  }
+}
+
+/**
+ * Handle connection request timeout
+ * @param {string} deviceId - Device ID that timed out
+ * @param {string} deviceName - Device name for display
+ */
+function handleConnectionRequestTimeout(deviceId, deviceName) {
+  // Clear timeout
+  if (pendingConnectionRequests[deviceId]) {
+    clearTimeout(pendingConnectionRequests[deviceId].timeoutId);
+    delete pendingConnectionRequests[deviceId];
+  }
+  
+  // Update UI
+  updateDeviceListUI();
+  
+  // Show timeout message
+  showToast(`Connection request to ${deviceName} timed out`, 'error');
+  console.log('Connection request timed out:', deviceId);
+}
+
+/**
+ * Cancel pending connection request
+ * @param {string} deviceId - Device ID to cancel request for
+ */
+function cancelPendingConnectionRequest(deviceId) {
+  if (pendingConnectionRequests[deviceId]) {
+    clearTimeout(pendingConnectionRequests[deviceId].timeoutId);
+    delete pendingConnectionRequests[deviceId];
   }
 }
 
@@ -1195,6 +1260,10 @@ function setupWebSocketListeners() {
   websocketClient.on('connect-accepted', ({ fromDeviceId, fromDeviceName }) => {
     console.log('Connection accepted by:', fromDeviceName);
     showToast(`Connection accepted by ${fromDeviceName}`, 'success');
+    
+    // Clear any pending timeout for this device
+    cancelPendingConnectionRequest(fromDeviceId);
+    
     // Mark as connected
     connectedDevice = { deviceId: fromDeviceId, deviceName: fromDeviceName };
     updateDeviceListUI();
@@ -1205,7 +1274,12 @@ function setupWebSocketListeners() {
   // Connection rejected
   websocketClient.on('connect-rejected', ({ fromDeviceId, fromDeviceName, reason }) => {
     console.log('Connection rejected by:', fromDeviceName, 'Reason:', reason);
+    
+    // Clear any pending timeout for this device
+    cancelPendingConnectionRequest(fromDeviceId);
+    
     showToast(`${fromDeviceName} rejected the connection` + (reason ? `: ${reason}` : ''), 'error');
+    updateDeviceListUI();
   });
 
   // WebRTC signaling messages
