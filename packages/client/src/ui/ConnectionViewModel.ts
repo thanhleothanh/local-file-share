@@ -97,6 +97,15 @@ export class ConnectionViewModel {
     this.unsubscribers.push(
       this.sm.onTransition((detail) => {
         this.update((prev) => ({ ...prev, connectionState: detail.to }));
+        // Clear file registry when leaving CONNECTED state
+        if (detail.from === ConnectionState.CONNECTED) {
+          this.fileRegistry.clear();
+          this.fileQueue.clear();
+          this.fileStore.clear();
+          this.sentFileIds.clear();
+          this.fileProgressMap.clear();
+          console.info('[FileRegistry] cleared on disconnect');
+        }
       }),
       this.client.on('device-list-updated', (devices) => {
         const list = devices as readonly DeviceDescriptor[];
@@ -129,6 +138,12 @@ export class ConnectionViewModel {
           incomingRequest: null,
           dataChannelOpen: false,
         }));
+        // Clear file state on server disconnect
+        this.fileRegistry.clear();
+        this.fileQueue.clear();
+        this.fileStore.clear();
+        this.sentFileIds.clear();
+        this.fileProgressMap.clear();
         this.cleanupWebRTC();
         try {
           this.sm.reset(ConnectionState.IDLE);
@@ -176,6 +191,12 @@ export class ConnectionViewModel {
         } catch {
           /* ignore */
         }
+        // Clear file state on peer disconnect
+        this.fileRegistry.clear();
+        this.fileQueue.clear();
+        this.fileStore.clear();
+        this.sentFileIds.clear();
+        this.fileProgressMap.clear();
         this.cleanupWebRTC();
         this.update((prev) => ({
           ...prev,

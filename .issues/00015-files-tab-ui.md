@@ -10,25 +10,25 @@ Build the full Files tab UI on top of the file state machine from slice 14. A si
 
 ## Acceptance criteria
 
-- [ ] `FilesTab` Lit component renders the file list, the send button, and the empty state
-- [ ] List is sorted newest-first by `createdAt`; rows do not move on state transitions
-- [ ] Each `FileRow` shows the direction indicator (↑ for sent, ↓ for received), filename, size, and current state
-- [ ] `FileRow` for PENDING (receiver): shows Accept and Reject buttons; Accept is disabled if any file is TRANSFERRING
-- [ ] `FileRow` for PENDING (sender): shows Cancel button
-- [ ] `FileRow` for QUEUED: shows "Queued" status, no actions
-- [ ] `FileRow` for TRANSFERRING: shows progress bar (`(bytesSent / totalBytes) * 100%` for sender, `(bytesReceived / totalBytes) * 100%` for receiver) and a Cancel button
-- [ ] `FileRow` for COMPLETED: shows a checkmark; no Download button (file is already on disk or has been saved)
-- [ ] `FileRow` for REJECTED / FAILED / CANCELLED: shows the status and a small "Dismiss" icon
-- [ ] Send button in the Files tab header opens a multi-file picker; hidden (not displayed) when not connected
-- [ ] Empty state: connected with no files shows "Tap + to send your first file"; not connected shows "Connect a device to start sharing files" (Files tab itself is disabled in this case)
-- [ ] When the connection leaves CONNECTED, `FileRegistry.clear()` is called and the list is empty
-- [ ] The Connection tab's old "Send test file" button is removed
-- [ ] E2E test: A and B connect; A picks 3 files; all 3 appear in B's Files tab as PENDING with Accept/Reject; B accepts file 2; file 2 shows progress and completes; file 1 and 3 are still PENDING with Accept buttons now enabled; B accepts file 1; transfers; A cancels file 3; file 3 disappears from B
-- [ ] E2E test: progress bars update on both sides during transfer; sender's bar shows bytes sent, receiver's shows bytes received; they converge at 100% on completion
-- [ ] E2E test: A disconnects; both Files tabs are empty
-- [ ] Unit test: `FileRow` for each of the 7 states renders the right buttons and progress bar; direction indicator is correct
-- [ ] Unit test: `FilesTab` with 5 files in the registry renders 5 rows in the right order; empty registry renders the empty state
-- [ ] All previously passing tests still pass
+- [x] `FilesTab` Lit component renders the file list, the send button, and the empty state
+- [x] List is sorted newest-first by `createdAt`; rows do not move on state transitions
+- [x] Each `FileRow` shows the direction indicator (↑ for sent, ↓ for received), filename, size, and current state
+- [x] `FileRow` for PENDING (receiver): shows Accept and Reject buttons; Accept is disabled if any file is TRANSFERRING
+- [x] `FileRow` for PENDING (sender): shows Cancel button
+- [x] `FileRow` for QUEUED: shows "Queued" status, no actions
+- [x] `FileRow` for TRANSFERRING: shows progress bar (`(bytesSent / totalBytes) * 100%` for sender, `(bytesReceived / totalBytes) * 100%` for receiver) and a Cancel button
+- [x] `FileRow` for COMPLETED: shows a checkmark; no Download button (file is already on disk or has been saved)
+- [x] `FileRow` for REJECTED / FAILED / CANCELLED: shows the status and a small "Dismiss" icon
+- [x] Send button in the Files tab header opens a multi-file picker; hidden (not displayed) when not connected
+- [x] Empty state: connected with no files shows "Tap + to send your first file"; not connected shows "Connect a device to start sharing files" (Files tab itself is disabled in this case)
+- [x] When the connection leaves CONNECTED, `FileRegistry.clear()` is called and the list is empty (implemented in ConnectionViewModel.attach, close handler, and peer-disconnected handler)
+- [x] The Connection tab's old "Send test file" button is removed (replaced with multi-file picker in connected-card)
+- [ ] E2E test: A and B connect; A picks 3 files; all 3 appear in B's Files tab as PENDING with Accept/Reject; B accepts file 2; file 2 shows progress and completes; file 1 and 3 are still PENDING with Accept buttons now enabled; B accepts file 1; transfers; A cancels file 3; file 3 disappears from B (requires E2E infrastructure)
+- [ ] E2E test: progress bars update on both sides during transfer; sender's bar shows bytes sent, receiver's shows bytes received; they converge at 100% on completion (requires E2E infrastructure)
+- [ ] E2E test: A disconnects; both Files tabs are empty (requires E2E infrastructure)
+- [x] Unit test: `FileRow` for each of the 7 states renders the right buttons and progress bar; direction indicator is correct (10 tests)
+- [x] Unit test: `FilesTab` with 5 files in the registry renders 5 rows in the right order; empty registry renders the empty state (8 tests)
+- [x] All previously passing tests still pass (486 total tests)
 
 ## Status
 
