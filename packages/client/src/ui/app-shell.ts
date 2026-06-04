@@ -108,6 +108,17 @@ export class AppShell extends LitElement {
     this.activeTab = tab;
   }
 
+  private async handleFileSelected(event: CustomEvent<{ file: File }>): Promise<void> {
+    const file = event.detail.file;
+    if (!file || !this.viewModel) return;
+
+    try {
+      await this.viewModel.sendFile(file);
+    } catch (error) {
+      console.error('[AppShell] Failed to send file:', error);
+    }
+  }
+
   override render() {
     const state = this.vmState;
     const devices = state?.devices ?? [];
@@ -201,6 +212,7 @@ export class AppShell extends LitElement {
             .peerName=${peer(connectedDeviceId)}
             mode="connected"
             @disconnect-clicked=${() => this.viewModel?.disconnect()}
+            @file-selected=${(ev: CustomEvent<{ file: File }>) => this.handleFileSelected(ev)}
           ></connected-card>`
           : null
       }

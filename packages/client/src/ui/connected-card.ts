@@ -23,6 +23,11 @@ export class ConnectedCard extends LitElement {
       font-weight: 600;
       margin-bottom: 1rem;
     }
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
     button {
       background: #ef4444;
       color: #fff;
@@ -35,6 +40,13 @@ export class ConnectedCard extends LitElement {
     button[data-variant='cancel'] {
       background: rgba(255, 255, 255, 0.08);
       color: #e6e8ee;
+    }
+    button[data-variant='send'] {
+      background: #5b9cff;
+      color: #fff;
+    }
+    input[type='file'] {
+      display: none;
     }
   `;
 
@@ -53,20 +65,59 @@ export class ConnectedCard extends LitElement {
     );
   }
 
+  private onSendTestFileClick(): void {
+    const input = this.renderRoot?.querySelector('input[type="file"]') as HTMLInputElement | null;
+    if (input) {
+      input.click();
+    }
+  }
+
+  private onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      this.dispatchEvent(
+        new CustomEvent('file-selected', {
+          detail: { file: input.files[0] },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      // Reset input so the same file can be selected again
+      input.value = '';
+    }
+  }
+
   override render() {
     const isConnecting = this.mode === 'connecting';
+
     return html`
-      <div class="label" data-testid=${isConnecting ? 'connecting-label' : 'connected-label'}>
+      <div class="label" data-testid=${isConnecting ? 'connecting-label' : 'connected-label'}> 
         ${isConnecting ? 'Connecting to' : 'Connected to'}
       </div>
       <div class="name" data-testid="connected-peer-name">${this.peerName}</div>
-      <button
-        data-testid=${isConnecting ? 'cancel-connect' : 'disconnect'}
-        data-variant=${isConnecting ? 'cancel' : 'disconnect'}
-        @click=${this.onClick}
-      >
-        ${isConnecting ? 'Cancel' : 'Disconnect'}
-      </button>
+      <div class="actions">
+        ${
+          isConnecting
+            ? ''
+            : html`
+              <button
+                data-testid="send-test-file"
+                data-variant="send"
+                @click=${this.onSendTestFileClick}
+              >
+                Send test file
+              </button>
+            `
+        }
+        <button
+          data-testid=${isConnecting ? 'cancel-connect' : 'disconnect'}
+          data-variant=${isConnecting ? 'cancel' : 'disconnect'}
+          @click=${this.onClick}
+        >
+          ${isConnecting ? 'Cancel' : 'Disconnect'}
+        </button>
+      </div>
+      <input type="file" @change=${this.onFileSelected} />
     `;
   }
 }

@@ -2,6 +2,7 @@ import type { DeviceDescriptor, AnySignalingMessage } from '@lfs/shared';
 import { ConnectionState, ConnectionStateMachine } from '@lfs/shared';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
+import { FileSender, FileReceiver } from '../files/index.js';
 
 export interface ConnectionViewModelState {
   devices: readonly DeviceDescriptor[];
@@ -30,6 +31,8 @@ export class ConnectionViewModel {
   private readonly listeners = new Set<ConnectionViewModelListener>();
   private readonly unsubscribers: Array<() => void> = [];
   private webrtc: WebRTCConnection | null = null;
+  private fileSender: FileSender | null = null;
+  private fileReceiver: FileReceiver | null = null;
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -302,6 +305,20 @@ export class ConnectionViewModel {
   }
 
   /**
+   * Send a file to the connected device.
+   * Only works when in CONNECTED state and data channels are open.
+   */
+  async sendFile(file: File): Promise<void> {
+    if (this.state.connectionState !== ConnectionState.CONNECTED || !this.fileSender) {
+      throw new Error('Cannot send file: not connected or file sender not initialized');
+    }
+
+    this.loggerFor('FileSender').info('sending file', { name: file.name, size: file.size });
+    await this.fileSender.sendFile(file);
+    this.loggerFor('FileSender').info('file sent successfully', { name: file.name });
+  }
+
+  /**
    * Initialize WebRTC connection.
    * @param targetDeviceId - The device ID to connect to
    * @param isOfferer - Whether this side is the offerer
@@ -333,13 +350,25 @@ export class ConnectionViewModel {
       this.webrtc.on('data-channel-close', () => {
         this.loggerFor('WebRTC').info('data channels closed');
         this.update((prev) => ({ ...prev, dataChannelOpen: false }));
+        this.cleanupFileTransfer();
       }),
       this.webrtc.on('data-channel-message', (payload: { channel: 'control' | 'data'; data: string | ArrayBuffer }) => {
         if (payload.channel === 'data' && typeof payload.data === 'string' && payload.data === 'hello') {
           this.loggerFor('WebRTC').info('received hello message on data channel');
           // Log to console as required by the issue
           console.info('[WebRTC] received: hello');
+        } else if (payload.channel === 'data' && payload.data instanceof ArrayBuffer) {
+          // Handle incoming file chunk
+          this.handleIncomingChunk(payload.data);
         }
+      }),
+    );
+
+    // Set up file sender and receiver when data channels open
+    this.unsubscribers.push(
+      this.webrtc.on('data-channel-open', (channels) => {
+        this.loggerFor('WebRTC').info('data channels open - initializing file transfer');
+        this.initFileTransfer(channels.data);
       }),
     );
 
@@ -352,9 +381,73 @@ export class ConnectionViewModel {
   }
 
   /**
+   * Initialize file sender and receiver with the data channel.
+   */
+  private initFileTransfer(dataChannel: RTCDataChannel): void {
+    this.cleanupFileTransfer();
+
+    // Create file sender that sends chunks via the data channel
+    this.fileSender = new FileSender({
+      sendChunk: async (chunk: ArrayBuffer) => {
+        if (dataChannel.readyState === 'open') {
+          dataChannel.send(chunk);
+        } else {
+          throw new Error('Data channel not open');
+        }
+      },
+    });
+
+    // Create file receiver
+    this.fileReceiver = new FileReceiver();
+
+    // Set up receiver event listeners
+    this.fileReceiver.onAssembled((fileId: string, fileName: string, byteLength: number) => {
+      this.loggerFor('FileReceiver').info('file assembled', { fileId, fileName, byteLength });
+      console.info('[FileReceiver] assembled', { fileId, fileName, byteLength });
+      // Show toast notification
+      const sizeInKB = Math.round(byteLength / 1024);
+      const w = window as unknown as { lfs?: { toast: (type: string, message: string) => void } };
+      if (typeof window !== 'undefined' && w.lfs?.toast) {
+        w.lfs.toast('success', `Received: ${fileName} (${sizeInKB} KB)`);
+      }
+    });
+  }
+
+  /**
+   * Handle an incoming chunk from the data channel.
+   */
+  private handleIncomingChunk(rawChunk: ArrayBuffer): void {
+    if (!this.fileReceiver) {
+      this.loggerFor('FileReceiver').warn('received chunk but receiver not initialized');
+      return;
+    }
+
+    // For now, we generate a generic fileId and fileName
+    // In a real implementation, these would come from the FILE_OFFER message
+    const fileId = 'test-file';
+    const fileName = 'test.bin';
+
+    this.fileReceiver.handleChunk(fileId, fileName, rawChunk);
+  }
+
+  /**
+   * Clean up file sender and receiver.
+   */
+  private cleanupFileTransfer(): void {
+    if (this.fileSender) {
+      this.fileSender = null;
+    }
+    if (this.fileReceiver) {
+      this.fileReceiver.clear();
+      this.fileReceiver = null;
+    }
+  }
+
+  /**
    * Clean up WebRTC connection.
    */
   private cleanupWebRTC(): void {
+    this.cleanupFileTransfer();
     if (this.webrtc) {
       this.webrtc.close();
       this.webrtc = null;
@@ -364,10 +457,13 @@ export class ConnectionViewModel {
   /**
    * Helper to create a logger with the given prefix.
    */
-  private loggerFor(prefix: string): { info: (msg: string, ctx?: unknown) => void } {
+  private loggerFor(prefix: string): { info: (msg: string, ctx?: unknown) => void; warn: (msg: string, ctx?: unknown) => void } {
     return {
       info: (msg: string, ctx?: unknown) => {
         console.info(`[${prefix}] ${msg}`, ctx);
+      },
+      warn: (msg: string, ctx?: unknown) => {
+        console.warn(`[${prefix}] ${msg}`, ctx);
       },
     };
   }
