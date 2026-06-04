@@ -299,7 +299,7 @@ export async function startProductionServer(
   host: string = process.env.HOST || '0.0.0.0',
   staticDir?: string,
 ): Promise<SignalingServer> {
-  const server = new SignalingServer({ staticDir });
+  const server = new SignalingServer(staticDir !== undefined ? { staticDir } : {});
   await server.listen(port, host);
   
   // Log server information

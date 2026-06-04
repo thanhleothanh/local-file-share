@@ -750,13 +750,6 @@ export class ConnectionViewModel {
   }
 
   /**
-   * Clear progress for a file.
-   */
-  private clearFileProgress(fileId: string): void {
-    this.fileProgressMap.delete(fileId);
-  }
-
-  /**
    * Accept a file offer from the peer.
    * Called by the receiver when they click Accept.
    */
@@ -1162,7 +1155,7 @@ export class ConnectionViewModel {
 
     // Create NackHandler for handling CHUNK_REQUEST_NACK messages
     this.nackHandler = new NackHandler(this.chunkCache, {
-      sendChunk: async (fileId: string, index: number, data: ArrayBuffer) => {
+      sendChunk: async (_fileId: string, _index: number, data: ArrayBuffer) => {
         // Retransmit the chunk on the data channel
         if (wrappedDataChannel.readyState === 'open') {
           await wrappedDataChannel.send(data);
@@ -1233,7 +1226,6 @@ export class ConnectionViewModel {
     // The ACK callback sends CHUNK_ACK messages on the control channel
     this.fileReceiver = new FileReceiver({
       writer: this.fsaWriter ?? undefined,
-      buffer: undefined, // Use default buffer
       sendChunkAck: (fileId: string, index: number) => {
         // Send CHUNK_ACK message on the control channel
         const ackMessage = JSON.stringify({

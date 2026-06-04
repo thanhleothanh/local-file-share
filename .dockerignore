@@ -2,8 +2,8 @@
 **/node_modules
 
 # Build outputs
-**/dist
 **/coverage
+**/.vite
 **/.vite
 **/playwright-report
 **/test-results

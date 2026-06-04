@@ -9,14 +9,6 @@
 const THRESHOLD = 1024 * 1024; // 1 MiB - keeps ~64 chunks in flight at 16 KB each
 const SAFETY_TIMEOUT_MS = 60_000; // 60 seconds
 
-// Type for a send method that returns a Promise
-type AsyncSend = (data: string | ArrayBuffer | Blob) => Promise<void>;
-
-// Extended type for wrapped channel
-export interface WrappedDataChannel extends RTCDataChannel {
-  send: AsyncSend;
-}
-
 /**
  * Wrap an RTCDataChannel with SCTP backpressure.
  * Returns the same channel object with a replaced `send` method that
@@ -25,9 +17,9 @@ export interface WrappedDataChannel extends RTCDataChannel {
  * The wrapping is done in-place on the channel object.
  * The control channel should NOT be wrapped (its messages are tiny).
  */
-function wrap(channel: RTCDataChannel): WrappedDataChannel {
+function wrap(channel: RTCDataChannel): RTCDataChannel & { send: (data: string | ArrayBuffer | Blob) => Promise<void> } {
   // Store original send before we replace it
-  const originalSend = channel.send.bind(channel);
+  const originalSend = channel.send.bind(channel) as (data: string | ArrayBuffer | Blob) => void;
   const pending: Array<{ resolve: () => void; timeout: NodeJS.Timeout }> = [];
 
   const resolvePending = () => {
@@ -45,7 +37,7 @@ function wrap(channel: RTCDataChannel): WrappedDataChannel {
   channel.addEventListener('bufferedamountlow', resolvePending);
 
   // Replace the send method with a Promise-returning version
-  const asyncSend: AsyncSend = (data: string | ArrayBuffer | Blob) => {
+  const asyncSend = (data: string | ArrayBuffer | Blob) => {
     const bufferedAmount = channel.bufferedAmount;
 
     // If buffer is already drained, send immediately
@@ -70,9 +62,10 @@ function wrap(channel: RTCDataChannel): WrappedDataChannel {
     });
   };
 
-  channel.send = asyncSend;
+  // Use type assertion to assign the async send method
+  (channel as unknown as { send: (data: string | ArrayBuffer | Blob) => Promise<void> }).send = asyncSend;
 
-  return channel as WrappedDataChannel;
+  return channel as unknown as RTCDataChannel & { send: (data: string | ArrayBuffer | Blob) => Promise<void> };
 }
 
 export const SCTPBackpressure = {

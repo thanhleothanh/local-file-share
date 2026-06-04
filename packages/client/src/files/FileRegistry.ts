@@ -185,18 +185,4 @@ export class FileRegistry {
       }
     };
   }
-
-  /**
-   * Notify all subscribers of a change.
-   * Called internally after modifications.
-   */
-  private notifySubscribers(): void {
-    for (const callback of this.subscribers) {
-      try {
-        callback(this);
-      } catch (error) {
-        console.error('[FileRegistry] subscriber error:', error);
-      }
-    }
-  }
 }

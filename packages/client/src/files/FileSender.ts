@@ -36,12 +36,7 @@ export class FileSendTimeoutError extends Error {
 
 export class FileSender {
   private readonly sendChunk: (chunk: ArrayBuffer) => Promise<void>;
-  private readonly listeners: Map<
-    string,
-    Array<(fileId: string, bytesSent: number, totalBytes: number) => void>
-  > = new Map();
-  private readonly completeListeners: Array<(fileId: string) => void> = [];
-  private readonly failedListeners: Array<(fileId: string, error: Error) => void> = [];
+  private readonly listeners: Map<string, Array<(...args: unknown[]) => void>> = new Map();
   private readonly cache: ChunkCache;
   private readonly ackTimeoutMs: number;
   private readonly pendingTransfers: Map<
@@ -58,7 +53,8 @@ export class FileSender {
   on(event: 'progress', handler: (fileId: string, bytesSent: number, totalBytes: number) => void): () => void;
   on(event: 'complete', handler: (fileId: string) => void): () => void;
   on(event: 'failed', handler: (fileId: string, error: Error) => void): () => void;
-  on(event: string, handler: (...args: unknown[]) => void): () => void {
+  on(event: string, handler: unknown): () => void;
+  on(event: string, handler: unknown): () => void {
     const handlers = this.listeners.get(event) ?? [];
     handlers.push(handler as never);
     this.listeners.set(event, handlers);
@@ -187,11 +183,11 @@ export class FileSender {
    * This is called after all chunks are sent.
    *
    * @param fileId - The file ID
-   * @param chunkCount - The total number of chunks sent
+   * @param _chunkCount - The total number of chunks sent (unused, kept for API compatibility)
    * @param timeoutMs - Timeout in milliseconds (defaults to ackTimeoutMs)
    * @returns Promise that resolves when FILE_RECEIVED is received, or rejects on timeout
    */
-  waitForAck(fileId: string, chunkCount: number, timeoutMs: number = this.ackTimeoutMs): Promise<void> {
+  waitForAck(fileId: string, _chunkCount: number, timeoutMs: number = this.ackTimeoutMs): Promise<void> {
     return new Promise((resolve, reject) => {
       // Set up timeout
       const timer = setTimeout(() => {

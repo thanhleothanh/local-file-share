@@ -108,7 +108,7 @@ export class FileQueue {
     // Find the first non-terminal state file in the queue
     for (let i = 0; i < this.queue.length; i++) {
       const entry = this.queue[i];
-      if (!FileStateMachine.isTerminal(entry.state as FileState)) {
+      if (entry && !FileStateMachine.isTerminal(entry.state as FileState)) {
         // Remove from queue and set as current
         this.queue.splice(i, 1);
         this.currentFileId = entry.fileId;
