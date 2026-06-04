@@ -1,6 +1,6 @@
 # 1. Browser-Only with No External Servers
 
-**Status**: Superseded by [ADR-0030](./0030-websocket-signaling-server.md)  
+**Status**: Superseded by [ADR-0031](./0031-websocket-signaling-server.md)  
 **Date**: 2026-05-31
 
 ## Context
@@ -14,12 +14,14 @@ Build a **pure browser-based application** with no external servers. All functio
 ## Consequences
 
 **Positive:**
+
 - Zero deployment complexity — users just open a web page
 - No server costs or maintenance
 - Files never leave the local network (privacy preserved)
 - Works offline on local networks
 
 **Negative:**
+
 - Limited to same-network devices only
 - WebRTC requires some browser support (works on modern Chrome, Firefox, Edge, Safari)
 - No centralized discovery — requires manual QR code scanning

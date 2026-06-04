@@ -1,6 +1,6 @@
 # 28. Connection Tab: 3-Step Dot Progress with State-Driven Panes
 
-**Status**: Superseded by [ADR-0030](./0030-websocket-signaling-server.md)
+**Status**: Superseded by [ADR-0031](./0031-websocket-signaling-server.md) and [ADR-0040](./0040-connection-tab-device-list-ui.md)  
 **Date**: 2026-06-02
 
 ## Context
@@ -32,7 +32,7 @@ visible at a time, switched by `currentStep` × `connectionRole`:
   Answer QR from other device" button. Joiner shows a live camera
   scanner.
 - **Step 2 — Answer.** Initiator shows a live camera scanner that is
-  *always on* while the pane is visible — no button to open it.
+  _always on_ while the pane is visible — no button to open it.
   Joiner shows the answer QR.
 - **Step 3 — Connected.** Two device cards (local with a "You"
   badge; peer as a generic placeholder) + a "Reload the page to

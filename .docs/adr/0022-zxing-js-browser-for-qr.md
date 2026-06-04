@@ -1,6 +1,6 @@
 # 22. zxing-js/browser for QR Code Scanning and Generation
 
-**Status**: Superseded by [ADR-0031](./0031-remove-qr-code-infrastructure.md)  
+**Status**: Superseded by [ADR-0032](./0032-remove-qr-code-infrastructure.md)  
 **Date**: 2026-05-31
 
 ## Context
@@ -12,6 +12,7 @@ We need to generate and scan QR codes in the browser to facilitate the WebRTC co
 Use **zxing-js/browser** library for both QR code generation and scanning.
 
 This library provides:
+
 - **QR Code Scanning**: Read QR codes from camera or image files
 - **QR Code Generation**: Create QR codes from data strings
 - **Browser Compatibility**: Works on all modern browsers (Chrome, Firefox, Edge, Safari, iOS Safari, Android Chrome)
@@ -21,6 +22,7 @@ This library provides:
 ## Consequences
 
 **Positive:**
+
 - Single library for both scanning and generation (simpler dependency management)
 - Well-maintained, actively developed
 - Lightweight (~100KB minified)
@@ -30,6 +32,7 @@ This library provides:
 - Can be loaded from CDN for easy deployment
 
 **Negative:**
+
 - Adds ~100KB to bundle size
 - Camera access requires user permission
 - On mobile, may need full-screen scanner for best UX
@@ -38,25 +41,32 @@ This library provides:
 ## Integration Details
 
 ### QR Code Generation
+
 ```javascript
 import { BrowserQRCodeWriter } from '@zxing/browser';
 
 const writer = new BrowserQRCodeWriter();
-const qrCodeData = { type: "OFFER", payload: "...", secret: "...", connId: "..." };
+const qrCodeData = {
+  type: 'OFFER',
+  payload: '...',
+  secret: '...',
+  connId: '...',
+};
 const qrCodeString = JSON.stringify(qrCodeData);
 
 // Compress before generating QR (ADR-0012)
 const compressed = compressAndEncode(qrCodeString);
 
 // Generate QR code as data URL
-const qrCodeUrl = await writer.writeToDataURL(compressed, { 
-  width: 256, 
+const qrCodeUrl = await writer.writeToDataURL(compressed, {
+  width: 256,
   height: 256,
-  margin: 2 
+  margin: 2,
 });
 ```
 
 ### QR Code Scanning
+
 ```javascript
 import { BrowserQRCodeReader } from '@zxing/browser';
 
@@ -69,7 +79,7 @@ const result = await reader.decodeFromVideoDevice(
       const qrData = JSON.parse(decompressAndDecode(result.text));
       // Process QR data
     }
-  }
+  },
 );
 ```
 

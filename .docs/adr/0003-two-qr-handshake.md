@@ -1,6 +1,6 @@
 # 3. Two-QR Code Handshake for Connection Establishment
 
-**Status**: Superseded by [ADR-0030](./0030-websocket-signaling-server.md)  
+**Status**: Superseded by [ADR-0031](./0031-websocket-signaling-server.md)  
 **Date**: 2026-05-31
 
 ## Context
@@ -20,12 +20,14 @@ The connection secret and ID are used to verify the two QRs belong to the same c
 ## Consequences
 
 **Positive:**
+
 - No server infrastructure required
 - Works on all devices with cameras
 - Simple user flow
 - Connection-specific authentication via secret
 
 **Negative:**
+
 - Requires camera on at least one device per connection
 - Two-step process (scan QR #1, then scan QR #2)
 - QR code size limitations require compression (gzip + base64)

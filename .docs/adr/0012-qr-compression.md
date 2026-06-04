@@ -1,6 +1,6 @@
 # 12. QR Code Compression for WebRTC Signaling
 
-**Status**: Superseded by [ADR-0031](./0031-remove-qr-code-infrastructure.md)  
+**Status**: Superseded by [ADR-0032](./0032-remove-qr-code-infrastructure.md)  
 **Date**: 2026-05-31
 
 ## Context
@@ -12,6 +12,7 @@ WebRTC SDP offers/answers and ICE candidates can be large (2-4KB). QR codes have
 Compress WebRTC signaling data using **gzip** and encode as **Base64** before including in QR codes.
 
 **Format:**
+
 ```json
 {
   "type": "OFFER" | "ANSWER",
@@ -22,12 +23,14 @@ Compress WebRTC signaling data using **gzip** and encode as **Base64** before in
 ```
 
 **Compression:**
+
 - Combine SDP + ICE candidates into single object
 - Gzip compress the object
 - Base64 encode the compressed data
 - Include in QR payload field
 
 **Decompression:**
+
 - Base64 decode payload
 - Gzip decompress
 - Parse JSON to get SDP and ICE candidates
@@ -35,12 +38,14 @@ Compress WebRTC signaling data using **gzip** and encode as **Base64** before in
 ## Consequences
 
 **Positive:**
+
 - Fits signaling data reliably in QR codes
 - Reduces QR code size by ~50-70%
 - Works with standard QR scanners
 - No data loss
 
 **Negative:**
+
 - Adds ~10KB library (pako.js) for gzip in browser
 - Slight CPU overhead for compression/decompression
 - Small delay in QR generation/scanning

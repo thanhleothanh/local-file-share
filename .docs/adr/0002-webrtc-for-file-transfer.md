@@ -20,11 +20,11 @@ Use **WebRTC data channels** for direct peer-to-peer file transfer. WebRTC provi
 **Positive:**
 - True P2P — files transfer directly without intermediaries
 - Encrypted by default
-- No server costs
+- No server costs for the file transfer itself
 - Works on local networks
 
 **Negative:**
-- Requires signaling to establish connection (handled via QR codes)
+- Requires signaling to establish connection (handled via WebSocket server, see ADR-0031)
 - ICE candidate gathering can be complex
 - Browser message size limit (~16KB) requires chunking
 - NAT traversal complexity (mitigated by same-network assumption)

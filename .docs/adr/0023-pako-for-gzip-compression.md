@@ -1,6 +1,6 @@
 # 23. Pako for Gzip Compression in Browser
 
-**Status**: Superseded by [ADR-0031](./0031-remove-qr-code-infrastructure.md)  
+**Status**: Superseded by [ADR-0032](./0032-remove-qr-code-infrastructure.md)  
 **Date**: 2026-05-31
 
 ## Context
@@ -12,6 +12,7 @@ WebRTC SDP offers/answers and ICE candidates can be large (2-4KB). QR codes have
 Use **pako** library for gzip compression and decompression in the browser.
 
 Pako is a zlib port to JavaScript that provides:
+
 - **Gzip compression/decompression**
 - **Deflate compression/decompression**
 - **Pure JavaScript** implementation (no native dependencies)
@@ -22,16 +23,17 @@ Pako is a zlib port to JavaScript that provides:
 ## Implementation
 
 ### Compression Flow
+
 ```javascript
 import { gzip, ungzip } from 'pako';
 
 function compressToBase64(data) {
   // Convert JSON to string
   const jsonString = JSON.stringify(data);
-  
+
   // Compress to gzip
   const compressed = gzip(jsonString, { to: 'string' });
-  
+
   // Encode as base64
   return btoa(String.fromCharCode(...new Uint8Array(compressed)));
 }
@@ -43,43 +45,45 @@ function decompressFromBase64(base64String) {
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-  
+
   // Decompress from gzip
   const decompressed = ungzip(bytes, { to: 'string' });
-  
+
   // Parse JSON
   return JSON.parse(decompressed);
 }
 ```
 
 ### Usage in QR Codes
+
 ```javascript
 // For OFFER QR
-const offerData = { 
-  type: "OFFER", 
-  sdp: offerSdp, 
+const offerData = {
+  type: 'OFFER',
+  sdp: offerSdp,
   ice: iceCandidates,
   secret: connectionSecret,
-  connId: connectionId 
+  connId: connectionId,
 };
 const compressedPayload = compressToBase64(offerData);
-const qrData = { type: "OFFER", payload: compressedPayload };
+const qrData = { type: 'OFFER', payload: compressedPayload };
 
 // For ANSWER QR
-const answerData = { 
-  type: "ANSWER", 
-  sdp: answerSdp, 
+const answerData = {
+  type: 'ANSWER',
+  sdp: answerSdp,
   ice: iceCandidates,
   secret: connectionSecret,
-  connId: connectionId 
+  connId: connectionId,
 };
 const compressedPayload = compressToBase64(answerData);
-const qrData = { type: "ANSWER", payload: compressedPayload };
+const qrData = { type: 'ANSWER', payload: compressedPayload };
 ```
 
 ## Compression Results
 
 Typical compression ratios for WebRTC signaling data:
+
 - SDP offer: ~1.5KB → ~0.8KB (47% reduction)
 - SDP answer: ~1KB → ~0.5KB (50% reduction)
 - ICE candidates (10-20): ~2KB → ~1KB (50% reduction)
@@ -90,6 +94,7 @@ This allows the combined offer + ICE candidates to fit reliably within QR code c
 ## Consequences
 
 **Positive:**
+
 - Reduces QR code data size by 50-70%
 - Fits signaling data reliably in QR codes
 - Well-tested, widely used library
@@ -99,6 +104,7 @@ This allows the combined offer + ICE candidates to fit reliably within QR code c
 - Can be loaded from CDN
 
 **Negative:**
+
 - Adds ~10KB to bundle size
 - Slight CPU overhead for compression/decompression
 - Small delay in QR generation/scanning

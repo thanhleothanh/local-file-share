@@ -1,6 +1,6 @@
 # 16. zxing-js/browser for QR Code Scanning
 
-**Status**: Superseded by [ADR-0031](./0031-remove-qr-code-infrastructure.md)  
+**Status**: Superseded by [ADR-0032](./0032-remove-qr-code-infrastructure.md)  
 **Date**: 2026-05-31
 
 ## Context
@@ -13,6 +13,7 @@ Use **[zxing-js/browser](https://github.com/zxing-js/browser)** library for QR c
 
 **Size:** ~300KB (minified + gzipped)
 **Features:**
+
 - Camera streaming support
 - Works on all modern browsers (Chrome, Firefox, Edge, Safari)
 - Actively maintained
@@ -21,12 +22,14 @@ Use **[zxing-js/browser](https://github.com/zxing-js/browser)** library for QR c
 ## Consequences
 
 **Positive:**
+
 - Reliable QR scanning across all target platforms
 - Good performance
 - Modern API (async/await)
 - Well-documented
 
 **Negative:**
+
 - Adds ~300KB to bundle size
 - Requires camera permissions
 - External dependency
