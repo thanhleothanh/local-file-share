@@ -10,10 +10,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@lfs/shared": "*"
+    "@lfs/shared": "*",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.6.0"
   }
 }

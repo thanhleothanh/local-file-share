@@ -5,7 +5,13 @@ export default defineConfig({
     include: ['tests/**/*.test.ts', 'packages/**/test/**/*.test.ts', 'packages/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**'],
     environment: 'node',
+    environmentMatchGlobs: [
+      ['packages/client/**/*.test.ts', 'happy-dom'],
+      ['tests/unit/client/**/*.test.ts', 'happy-dom'],
+    ],
     globals: false,
+    testTimeout: 10_000,
+    hookTimeout: 10_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json'],
