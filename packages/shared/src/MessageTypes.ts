@@ -9,9 +9,12 @@ export type SignalingMessageType =
   | 'answer'
   | 'ice-candidate'
   | 'connect-request'
+  | 'connect-accepted'
+  | 'connect-rejected'
   | 'accept-connect'
   | 'reject-connect'
   | 'disconnect'
+  | 'device-disconnected'
   | 'ping'
   | 'pong'
   | 'error';
@@ -83,6 +86,14 @@ export type ConnectRequestMessage = SignalingEnvelope<ConnectRequestData> & {
   type: 'connect-request';
   to: string;
 };
+export type ConnectAcceptedMessage = SignalingEnvelope<AcceptConnectData> & {
+  type: 'connect-accepted';
+  to: string;
+};
+export type ConnectRejectedMessage = SignalingEnvelope<RejectConnectData> & {
+  type: 'connect-rejected';
+  to: string;
+};
 export type AcceptConnectMessage = SignalingEnvelope<AcceptConnectData> & {
   type: 'accept-connect';
   to: string;
@@ -92,6 +103,9 @@ export type RejectConnectMessage = SignalingEnvelope<RejectConnectData> & {
   to: string;
 };
 export type DisconnectMessage = SignalingEnvelope<DisconnectData> & { type: 'disconnect' };
+export type DeviceDisconnectedMessage = SignalingEnvelope<DisconnectData> & {
+  type: 'device-disconnected';
+};
 export type PingMessage = SignalingEnvelope & { type: 'ping' };
 export type PongMessage = SignalingEnvelope & { type: 'pong' };
 export type ErrorMessage = SignalingEnvelope<ErrorData> & { type: 'error' };
@@ -103,9 +117,12 @@ export type AnySignalingMessage =
   | AnswerMessage
   | IceCandidateMessage
   | ConnectRequestMessage
+  | ConnectAcceptedMessage
+  | ConnectRejectedMessage
   | AcceptConnectMessage
   | RejectConnectMessage
   | DisconnectMessage
+  | DeviceDisconnectedMessage
   | PingMessage
   | PongMessage
   | ErrorMessage;

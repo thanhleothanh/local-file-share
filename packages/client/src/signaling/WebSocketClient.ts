@@ -10,6 +10,8 @@ export type WebSocketEvent =
   | 'message'
   | 'device-list-updated'
   | 'incoming-connect-request'
+  | 'connect-accepted'
+  | 'connect-rejected'
   | 'peer-disconnected'
   | 'registered'
   | 'parse-error'
@@ -148,6 +150,12 @@ export class WebSocketClient {
       }
       case 'connect-request':
         this.emit('incoming-connect-request', message);
+        break;
+      case 'connect-accepted':
+        this.emit('connect-accepted', message);
+        break;
+      case 'connect-rejected':
+        this.emit('connect-rejected', message);
         break;
       case 'disconnect':
         this.emit('peer-disconnected', message);

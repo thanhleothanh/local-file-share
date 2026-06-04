@@ -2,7 +2,9 @@ import { ConnectionState } from '@lfs/shared';
 import { LitElement, css, html } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ConnectionViewModel, ConnectionViewModelState } from './ConnectionViewModel.js';
+import './connected-card.js';
 import './connection-tab.js';
+import './incoming-prompt.js';
 
 export type ActiveTab = 'connection' | 'files';
 
@@ -113,6 +115,8 @@ export class AppShell extends LitElement {
     const serverConnected = state?.serverConnected ?? false;
     const connectionState = state?.connectionState ?? ConnectionState.IDLE;
     const connectedDeviceId = state?.connectedDeviceId ?? null;
+    const connectingToDeviceId = state?.connectingToDeviceId ?? null;
+    const incomingRequest = state?.incomingRequest ?? null;
     this.connected = connectionState === ConnectionState.CONNECTED && connectedDeviceId !== null;
     return html`
       <nav class="tabs" role="tablist">
@@ -140,14 +144,77 @@ export class AppShell extends LitElement {
       <main>
         ${
           this.activeTab === 'connection'
-            ? html`<connection-tab
-              .devices=${devices}
-              .localDeviceId=${localId}
-              ?dim=${!serverConnected}
-            ></connection-tab>`
+            ? this.renderConnectionTab(
+                devices,
+                localId,
+                serverConnected,
+                connectionState,
+                connectedDeviceId,
+                connectingToDeviceId,
+                incomingRequest,
+              )
             : html`<p>Files tab</p>`
         }
       </main>
+    `;
+  }
+
+  private renderConnectionTab(
+    devices: ConnectionViewModelState['devices'],
+    localId: string,
+    serverConnected: boolean,
+    connectionState: ConnectionState,
+    connectedDeviceId: string | null,
+    connectingToDeviceId: string | null,
+    incomingRequest: ConnectionViewModelState['incomingRequest'],
+  ) {
+    if (!this.viewModel) {
+      return html`<connection-tab
+        .devices=${devices}
+        .localDeviceId=${localId}
+        ?dim=${!serverConnected}
+      ></connection-tab>`;
+    }
+    const peer = (id: string): string => devices.find((d) => d.deviceId === id)?.deviceName ?? 'Unknown';
+    return html`
+      ${
+        incomingRequest !== null
+          ? html`<incoming-prompt
+            .fromDeviceName=${incomingRequest.fromDeviceName}
+            @accept-incoming=${() => this.viewModel?.acceptIncoming()}
+            @reject-incoming=${() => this.viewModel?.rejectIncoming()}
+          ></incoming-prompt>`
+          : null
+      }
+      ${
+        connectionState === ConnectionState.CONNECTING && connectingToDeviceId !== null
+          ? html`<connected-card
+            .peerName=${peer(connectingToDeviceId)}
+            mode="connecting"
+            @cancel-clicked=${() => this.viewModel?.cancelOutgoing()}
+          ></connected-card>`
+          : null
+      }
+      ${
+        connectionState === ConnectionState.CONNECTED && connectedDeviceId !== null
+          ? html`<connected-card
+            .peerName=${peer(connectedDeviceId)}
+            mode="connected"
+            @disconnect-clicked=${() => this.viewModel?.disconnect()}
+          ></connected-card>`
+          : null
+      }
+      ${
+        connectionState === ConnectionState.IDLE
+          ? html`<connection-tab
+            .devices=${devices}
+            .localDeviceId=${localId}
+            ?dim=${!serverConnected}
+            @connect-clicked=${(ev: CustomEvent<{ deviceId: string }>) =>
+              this.viewModel?.requestConnect(ev.detail.deviceId)}
+          ></connection-tab>`
+          : null
+      }
     `;
   }
 }

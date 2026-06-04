@@ -32,16 +32,16 @@ describe('ConnectionState', () => {
     expect(isConnectionState(undefined)).toBe(false);
   });
 
-  it('IDLE can only INITIATE_CONNECT', () => {
-    expect(getValidEventsForConnection(ConnectionState.IDLE)).toEqual(['INITIATE_CONNECT']);
+  it('IDLE can only REQUEST_CONNECT', () => {
+    expect(getValidEventsForConnection(ConnectionState.IDLE)).toEqual(['REQUEST_CONNECT']);
   });
 
-  it('CONNECTING can ACCEPT, REJECT, ERROR, DISCONNECT', () => {
+  it('CONNECTING can CONNECT_ACCEPTED, CONNECT_REJECTED, PEER_CANCELLED, ERROR', () => {
     const events = getValidEventsForConnection(ConnectionState.CONNECTING);
-    expect(events).toContain('ACCEPT');
-    expect(events).toContain('REJECT');
+    expect(events).toContain('CONNECT_ACCEPTED');
+    expect(events).toContain('CONNECT_REJECTED');
+    expect(events).toContain('PEER_CANCELLED');
     expect(events).toContain('ERROR');
-    expect(events).toContain('DISCONNECT');
   });
 
   it('CONNECTED can DISCONNECT and ERROR', () => {

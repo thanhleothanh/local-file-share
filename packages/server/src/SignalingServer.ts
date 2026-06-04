@@ -7,6 +7,12 @@ import {
 import { DEFAULT_PORT, Logger } from '@lfs/shared';
 import type { AnySignalingMessage } from '@lfs/shared';
 import { type WebSocket, WebSocketServer } from 'ws';
+import {
+  AcceptConnectHandler,
+  ConnectRequestHandler,
+  DisconnectHandler,
+  RejectConnectHandler,
+} from './ConnectHandlers.js';
 import { DeviceRegistry } from './DeviceRegistry.js';
 import { parseSignalingMessage } from './MessageParser.js';
 import { RegisterHandler, broadcastDeviceList } from './RegisterHandler.js';
@@ -58,6 +64,10 @@ export class SignalingServer {
       logger: this.logger.child('Router'),
     });
     this.router.register(new RegisterHandler(this.logger.child('RegisterHandler')));
+    this.router.register(new ConnectRequestHandler(this.logger.child('ConnectRequestHandler')));
+    this.router.register(new AcceptConnectHandler(this.logger.child('AcceptConnectHandler')));
+    this.router.register(new RejectConnectHandler(this.logger.child('RejectConnectHandler')));
+    this.router.register(new DisconnectHandler(this.logger.child('DisconnectHandler')));
 
     this.registry.onChange((devices) => {
       broadcastDeviceList({ broadcast: (m) => this.broadcast(m) }, devices, this.logger.child('DeviceList'));

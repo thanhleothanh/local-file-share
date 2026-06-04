@@ -1,5 +1,9 @@
 # Issue 0005 — Connect / Accept / Reject with ConnectionStateMachine
 
+## Status
+
+Done — 2026-06-04. ConnectionStateMachine is a pure state-transition module (transition() pure function + dispatch() stateful wrapper) with full 7-valid + many-invalid transition coverage. Server-side ConnectRequestHandler/AcceptConnectHandler/RejectConnectHandler/DisconnectHandler are wired in SignalingServer. Client-side ConnectionViewModel exposes requestConnect/acceptIncoming/rejectIncoming/cancelOutgoing/disconnect methods. UI: incoming-prompt with Accept/Reject buttons; connected-card with Disconnect (mode=connected) or Cancel (mode=connecting); AppShell swaps between connection-list, incoming-prompt, and connected-card based on state. 31 new tests (10 transition, 9 ConnectionStateMachine, 6 ConnectHandlers, 5 connect-flow integration, 4 incoming-prompt, 5 connected-card, 1 connection-tab connect-clicked); 195 total pass. E2E tests not added (Playwright not installable on ubuntu26.04-x64 — pre-existing limitation).
+
 ## Parent
 
 Derived from `.docs/prds/0007-state-machines-queue-and-lifecycle.md` (ConnectionStateMachine portion) and `.docs/prds/0003-signaling-server.md` (ConnectRequestHandler, AcceptConnectHandler, RejectConnectHandler, DisconnectHandler).
@@ -10,22 +14,22 @@ The end-to-end connection flow: a user clicks Connect on a device, the target se
 
 ## Acceptance criteria
 
-- [ ] `ConnectionStateMachine` exposes `transition(currentState, event)` as a pure function; throws `InvalidTransitionError` on illegal transitions
-- [ ] Transition table: IDLE+REQUEST_CONNECT→CONNECTING; CONNECTING+CONNECT_ACCEPTED→CONNECTED; CONNECTING+CONNECT_REJECTED→IDLE; CONNECTING+PEER_CANCELLED→IDLE; CONNECTING+ERROR→IDLE; CONNECTED+DISCONNECT→IDLE; CONNECTED+ERROR→IDLE
-- [ ] Stateful wrapper: `dispatch(event)` applies the transition and emits a `transition` event
-- [ ] Server-side `ConnectRequestHandler` checks `registry.isBusy(target)`; if busy, sends `connect-rejected` to the requester; otherwise forwards `connect-request` to the target
-- [ ] Server-side `AcceptConnectHandler` marks `connectedTo` on both devices and broadcasts the updated `device-list` (so all clients see them as busy)
-- [ ] Server-side `RejectConnectHandler` does not mark busy; broadcasts the updated `device-list` (so the requester sees the target as free again)
-- [ ] Server-side `DisconnectHandler` clears `connectedTo` on both devices and broadcasts
-- [ ] Client-side: clicking Connect sends `request-connect`; target device's `ConnectionTab` shows a prompt with Accept and Reject buttons
-- [ ] Client-side: target accepting sends `accept-connect`; both UIs transition to "Connected" state and show the connected device name prominently
-- [ ] Client-side: target rejecting sends `reject-connect`; both UIs return to the device list
-- [ ] A "Cancel" button is shown while in CONNECTING (waiting for accept/reject); clicking it sends `disconnect` to the server and transitions back to IDLE
-- [ ] A "Disconnect" button is shown while in CONNECTED; clicking it sends `disconnect` and transitions back to IDLE
-- [ ] In CONNECTED state, the device list is hidden; only the connected device card with a Disconnect button is shown
-- [ ] E2E test: open two contexts; A clicks Connect on B; B sees the prompt; B accepts; both show "Connected to [name]"; A clicks Disconnect; both return to the device list
-- [ ] E2E test: open three contexts A, B, C; A connects to B (B is now busy); C clicks Connect on B; C sees "B is busy" toast; B's device list still shows C as available
-- [ ] Unit tests cover the full transition table (8 valid transitions + all other state×event pairs throw) and the three new server handlers
+- [x] `ConnectionStateMachine` exposes `transition(currentState, event)` as a pure function; throws `InvalidTransitionError` on illegal transitions
+- [x] Transition table: IDLE+REQUEST_CONNECT→CONNECTING; CONNECTING+CONNECT_ACCEPTED→CONNECTED; CONNECTING+CONNECT_REJECTED→IDLE; CONNECTING+PEER_CANCELLED→IDLE; CONNECTING+ERROR→IDLE; CONNECTED+DISCONNECT→IDLE; CONNECTED+ERROR→IDLE
+- [x] Stateful wrapper: `dispatch(event)` applies the transition and emits a `transition` event
+- [x] Server-side `ConnectRequestHandler` checks `registry.isBusy(target)`; if busy, sends `connect-rejected` to the requester; otherwise forwards `connect-request` to the target
+- [x] Server-side `AcceptConnectHandler` marks `connectedTo` on both devices and broadcasts the updated `device-list` (so all clients see them as busy)
+- [x] Server-side `RejectConnectHandler` does not mark busy; broadcasts the updated `device-list` (so the requester sees the target as free again)
+- [x] Server-side `DisconnectHandler` clears `connectedTo` on both devices and broadcasts
+- [x] Client-side: clicking Connect sends `request-connect`; target device's `ConnectionTab` shows a prompt with Accept and Reject buttons
+- [x] Client-side: target accepting sends `accept-connect`; both UIs transition to "Connected" state and show the connected device name prominently
+- [x] Client-side: target rejecting sends `reject-connect`; both UIs return to the device list
+- [x] A "Cancel" button is shown while in CONNECTING (waiting for accept/reject); clicking it sends `disconnect` to the server and transitions back to IDLE
+- [x] A "Disconnect" button is shown while in CONNECTED; clicking it sends `disconnect` and transitions back to IDLE
+- [x] In CONNECTED state, the device list is hidden; only the connected device card with a Disconnect button is shown
+- [ ] E2E test: open two contexts; A clicks Connect on B; B sees the prompt; B accepts; both show "Connected to [name]"; A clicks Disconnect; both return to the device list (blocked: Playwright not installable on ubuntu26.04-x64)
+- [ ] E2E test: open three contexts A, B, C; A connects to B (B is now busy); C clicks Connect on B; C sees "B is busy" toast; B's device list still shows C as available (blocked: same)
+- [x] Unit tests cover the full transition table (7 valid transitions + all other state×event pairs throw) and the three new server handlers
 
 ## Blocked by
 

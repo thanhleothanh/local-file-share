@@ -51,4 +51,22 @@ describe('connection-tab', () => {
     await el.updateComplete;
     expect(el.hasAttribute('dim')).toBe(true);
   });
+
+  it('forwards connect-clicked event from a device row', async () => {
+    el.devices = [makeDevice({ deviceId: 'b', deviceName: 'Bravo' })];
+    await el.updateComplete;
+    let detail: { deviceId: string } | null = null;
+    el.addEventListener('connect-clicked', (ev) => {
+      detail = (ev as CustomEvent<{ deviceId: string }>).detail;
+    });
+    const row = el.shadowRoot?.querySelector('device-row') as
+      | (HTMLElement & {
+          device: DeviceDescriptor | null;
+        })
+      | null;
+    expect(row).not.toBeNull();
+    const inner = row?.shadowRoot?.querySelector<HTMLButtonElement>('[data-testid="connect-button"]');
+    inner?.click();
+    expect(detail).toEqual({ deviceId: 'b' });
+  });
 });

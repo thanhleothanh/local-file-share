@@ -5,6 +5,7 @@ import { ConnectionViewModel } from '../../../packages/client/src/ui/ConnectionV
 
 class MockClient {
   private readonly listeners = new Map<WebSocketEvent, Set<(payload: unknown) => void>>();
+  public readonly sent: unknown[] = [];
   on(event: WebSocketEvent, handler: (payload: unknown) => void): () => void {
     let set = this.listeners.get(event);
     if (set === undefined) {
@@ -18,6 +19,10 @@ class MockClient {
   }
   emit(event: WebSocketEvent, payload: unknown): void {
     for (const h of this.listeners.get(event) ?? []) h(payload);
+  }
+  send(message: unknown): boolean {
+    this.sent.push(message);
+    return true;
   }
 }
 
@@ -89,5 +94,96 @@ describe('ConnectionViewModel', () => {
     expect(vm.isSelf({ deviceId: 'other', deviceName: 'Other', connectedTo: null, registeredAt: 1 })).toBe(
       false,
     );
+  });
+
+  it('requestConnect sends connect-request and transitions to CONNECTING', () => {
+    client.emit('device-list-updated', [
+      { deviceId: 'me', deviceName: 'Me', connectedTo: null, registeredAt: 1 },
+      { deviceId: 'b', deviceName: 'B', connectedTo: null, registeredAt: 2 },
+    ]);
+    const ok = vm.requestConnect('b');
+    expect(ok).toBe(true);
+    expect(client.sent[0]).toMatchObject({ type: 'connect-request', from: 'me', to: 'b' });
+    expect(vm.getState().connectionState).toBe(ConnectionState.CONNECTING);
+    expect(vm.getState().connectingToDeviceId).toBe('b');
+  });
+
+  it('connect-accepted transitions to CONNECTED', () => {
+    client.emit('device-list-updated', [
+      { deviceId: 'b', deviceName: 'B', connectedTo: null, registeredAt: 2 },
+    ]);
+    vm.requestConnect('b');
+    client.emit('connect-accepted', { from: 'b', data: { requesterDeviceId: 'me' } });
+    expect(vm.getState().connectionState).toBe(ConnectionState.CONNECTED);
+    expect(vm.getState().connectedDeviceId).toBe('b');
+  });
+
+  it('connect-rejected returns to IDLE', () => {
+    client.emit('device-list-updated', [
+      { deviceId: 'b', deviceName: 'B', connectedTo: null, registeredAt: 2 },
+    ]);
+    vm.requestConnect('b');
+    client.emit('connect-rejected', { from: 'b', data: { requesterDeviceId: 'me' } });
+    expect(vm.getState().connectionState).toBe(ConnectionState.IDLE);
+    expect(vm.getState().connectingToDeviceId).toBeNull();
+  });
+
+  it('incoming-connect-request populates incomingRequest', () => {
+    client.emit('incoming-connect-request', {
+      from: 'a',
+      data: { requesterName: 'Alpha' },
+    });
+    expect(vm.getState().incomingRequest).toEqual({ fromDeviceId: 'a', fromDeviceName: 'Alpha' });
+  });
+
+  it('acceptIncoming sends accept-connect and transitions to CONNECTED', () => {
+    client.emit('incoming-connect-request', { from: 'a', data: { requesterName: 'Alpha' } });
+    const ok = vm.acceptIncoming();
+    expect(ok).toBe(true);
+    expect(client.sent[0]).toMatchObject({ type: 'accept-connect', from: 'me', to: 'a' });
+    expect(vm.getState().connectionState).toBe(ConnectionState.CONNECTED);
+    expect(vm.getState().connectedDeviceId).toBe('a');
+  });
+
+  it('rejectIncoming sends reject-connect and clears incomingRequest', () => {
+    client.emit('incoming-connect-request', { from: 'a', data: { requesterName: 'Alpha' } });
+    const ok = vm.rejectIncoming('busy');
+    expect(ok).toBe(true);
+    expect(client.sent[0]).toMatchObject({ type: 'reject-connect', from: 'me', to: 'a' });
+    expect(vm.getState().incomingRequest).toBeNull();
+  });
+
+  it('cancelOutgoing sends disconnect and returns to IDLE', () => {
+    client.emit('device-list-updated', [
+      { deviceId: 'b', deviceName: 'B', connectedTo: null, registeredAt: 2 },
+    ]);
+    vm.requestConnect('b');
+    const ok = vm.cancelOutgoing();
+    expect(ok).toBe(true);
+    expect(client.sent.some((s) => (s as { type: string }).type === 'disconnect')).toBe(true);
+    expect(vm.getState().connectionState).toBe(ConnectionState.IDLE);
+  });
+
+  it('disconnect sends disconnect and returns to IDLE', () => {
+    client.emit('device-list-updated', [
+      { deviceId: 'b', deviceName: 'B', connectedTo: null, registeredAt: 2 },
+    ]);
+    vm.requestConnect('b');
+    client.emit('connect-accepted', { from: 'b', data: { requesterDeviceId: 'me' } });
+    const ok = vm.disconnect();
+    expect(ok).toBe(true);
+    expect(vm.getState().connectionState).toBe(ConnectionState.IDLE);
+    expect(vm.getState().connectedDeviceId).toBeNull();
+  });
+
+  it('peer-disconnected from server returns to IDLE', () => {
+    client.emit('device-list-updated', [
+      { deviceId: 'b', deviceName: 'B', connectedTo: null, registeredAt: 2 },
+    ]);
+    vm.requestConnect('b');
+    client.emit('connect-accepted', { from: 'b', data: { requesterDeviceId: 'me' } });
+    client.emit('peer-disconnected', { from: 'b' });
+    expect(vm.getState().connectionState).toBe(ConnectionState.IDLE);
+    expect(vm.getState().connectedDeviceId).toBeNull();
   });
 });
