@@ -2,7 +2,6 @@ import { LitElement, css, html } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ConnectionViewModel } from './ConnectionViewModel.js';
 import type { FileEntry } from '../files/FileStateMachine.js';
-import type { FileState } from '../files/FileStateMachine.js';
 import './file-row.js';
 
 @customElement('files-tab')
@@ -24,6 +23,11 @@ export class FilesTab extends LitElement {
       font-weight: 600;
       color: #e6e8ee;
     }
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
     .send-btn {
       background: #5b9cff;
       color: #fff;
@@ -39,6 +43,23 @@ export class FilesTab extends LitElement {
       background: #4a89e2;
     }
     .send-btn.visible {
+      display: inline-block;
+    }
+    .disconnect-btn {
+      background: #ef4444;
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: none;
+    }
+    .disconnect-btn:hover {
+      background: #dc3545;
+    }
+    .disconnect-btn.visible {
       display: inline-block;
     }
     input[type='file'] {
@@ -184,17 +205,31 @@ export class FilesTab extends LitElement {
     }
   }
 
+  private onDisconnectClick(): void {
+    if (this.viewModel) {
+      void this.viewModel.disconnect();
+    }
+  }
+
   override render() {
     const showSendButton = this.connected;
+    const showDisconnectButton = this.connected;
 
     return html`
       <div class="header">
         <h2 class="title">Files</h2>
-        <button
-          class="send-btn ${showSendButton ? 'visible' : ''}"
-          @click=${this.onSendClick}
-          data-testid="send-file-btn"
-        >Send File</button>
+        <div class="actions">
+          <button
+            class="send-btn ${showSendButton ? 'visible' : ''}"
+            @click=${this.onSendClick}
+            data-testid="send-file-btn"
+          >Send File</button>
+          <button
+            class="disconnect-btn ${showDisconnectButton ? 'visible' : ''}"
+            @click=${this.onDisconnectClick}
+            data-testid="disconnect-btn"
+          >Disconnect</button>
+        </div>
         <input type="file" @change=${this.onFileSelected} />
       </div>
       <div class="list" data-testid="file-list">

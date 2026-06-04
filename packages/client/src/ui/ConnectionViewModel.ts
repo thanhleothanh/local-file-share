@@ -9,6 +9,11 @@ import { FileSender, FileReceiver, FileSystemAccessWriter, FileRegistry, FileQue
 import { NackHandler, createChunkCache, CHUNK_SIZE, type ChunkCache, decodeChunk, FSA_QUEUE_FILE_COUNT_CAP, IDB_QUEUE_SIZE_CAP_BYTES } from '@lfs/shared';
 import type { ChunkRequestNackMessage, TransferDoneMessage, DecodedChunk } from '@lfs/shared';
 import { generateUuid } from '@lfs/shared';
+import { IdleTimer } from './IdleTimer.js';
+import { IndexedDBWriter } from '../files/IndexedDBWriter.js';
+
+// Type for RTCIceConnectionState (defined in browser, but we need it for type safety)
+export type RTCIceConnectionState = 'new' | 'checking' | 'connected' | 'completed' | 'failed' | 'disconnected' | 'closed';
 
 export interface ConnectionViewModelState {
   devices: readonly DeviceDescriptor[];
@@ -49,9 +54,11 @@ export class ConnectionViewModel {
   private fileSender: FileSender | null = null;
   private fileReceiver: FileReceiver | null = null;
   private fsaWriter: FileSystemAccessWriter | null = null;
+  private idbWriter: IndexedDBWriter | null = null;
   private controlChannel: RTCDataChannel | null = null;
   private chunkCache: ChunkCache | null = null;
   private nackHandler: NackHandler | null = null;
+  private idleTimer: IdleTimer | null = null;
   // File state management
   private fileRegistry: FileRegistry = new FileRegistry();
   private fileQueue: FileQueue = new FileQueue();
@@ -61,6 +68,8 @@ export class ConnectionViewModel {
   private sentFileIds: Set<string> = new Set();
   // Track progress for each file (fileId -> { bytesTransferred, totalBytes })
   private fileProgressMap: Map<string, { bytesTransferred: number; totalBytes: number; isSender: boolean }> = new Map();
+  // Flag to track if disconnect confirmation dialog is showing
+  private disconnectConfirming: boolean = false;
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -94,17 +103,31 @@ export class ConnectionViewModel {
   }
 
   attach(): void {
+    // Initialize idle timer - will be started when entering CONNECTED state
+    this.idleTimer = new IdleTimer(() => {
+      // On idle timeout, transition to IDLE without confirmation or toast (silent)
+      this.handleIdleTimeout();
+    });
+
     this.unsubscribers.push(
       this.sm.onTransition((detail) => {
         this.update((prev) => ({ ...prev, connectionState: detail.to }));
+        
+        // Start idle timer when entering CONNECTED state
+        if (detail.to === ConnectionState.CONNECTED) {
+          this.idleTimer?.start();
+          console.info('[IdleTimer] started');
+        }
+        
+        // Stop idle timer when entering IDLE state
+        if (detail.to === ConnectionState.IDLE) {
+          this.idleTimer?.stop();
+          console.info('[IdleTimer] stopped');
+        }
+        
         // Clear file registry when leaving CONNECTED state
         if (detail.from === ConnectionState.CONNECTED) {
-          this.fileRegistry.clear();
-          this.fileQueue.clear();
-          this.fileStore.clear();
-          this.sentFileIds.clear();
-          this.fileProgressMap.clear();
-          console.info('[FileRegistry] cleared on disconnect');
+          this.clearConnectionState();
         }
       }),
       this.client.on('device-list-updated', (devices) => {
@@ -325,13 +348,113 @@ export class ConnectionViewModel {
     return true;
   }
 
-  disconnect(): boolean {
+  /**
+   * Set a custom confirmation handler for disconnect.
+   * This allows the UI to provide its own confirmation dialog.
+   */
+  setDisconnectConfirmationHandler(handler: () => Promise<boolean> | boolean): void {
+    this.customConfirmHandler = handler;
+  }
+
+  private customConfirmHandler: (() => Promise<boolean> | boolean) | null = null;
+
+  /**
+   * Disconnect from the current connection.
+   * If files are TRANSFERRING or QUEUED, shows a confirmation dialog first.
+   * Otherwise, disconnects immediately.
+   * 
+   * @param force - If true, disconnects immediately without confirmation
+   * @returns Promise that resolves when disconnect is complete (or rejected if cancelled)
+   */
+  async disconnect(force: boolean = false): Promise<boolean> {
     if (this.state.connectionState !== ConnectionState.CONNECTED) return false;
+    const target = this.state.connectedDeviceId;
+    if (target === null) return false;
+
+    // Check if there are files in progress (TRANSFERRING or QUEUED)
+    const hasFilesInProgress = this.hasFilesInProgress();
+    
+    if (hasFilesInProgress && !force) {
+      // Show confirmation dialog
+      if (this.disconnectConfirming) {
+        return false; // Already showing confirmation
+      }
+      
+      this.disconnectConfirming = true;
+      
+      try {
+        const confirmed = await this.showDisconnectConfirmation();
+        if (!confirmed) {
+          this.disconnectConfirming = false;
+          return false;
+        }
+      } finally {
+        this.disconnectConfirming = false;
+      }
+    }
+
+    // Perform the actual disconnect
+    return this.performDisconnect();
+  }
+
+  /**
+   * Check if there are any files currently TRANSFERRING or QUEUED.
+   */
+  private hasFilesInProgress(): boolean {
+    const transferringFiles = this.fileRegistry.getByState('TRANSFERRING');
+    const queuedFiles = this.fileRegistry.getByState('QUEUED');
+    return transferringFiles.length > 0 || queuedFiles.length > 0;
+  }
+
+  /**
+   * Show a confirmation dialog for disconnecting with files in progress.
+   * Returns a promise that resolves to true if confirmed, false if cancelled.
+   */
+  private async showDisconnectConfirmation(): Promise<boolean> {
+    // Use custom handler if set
+    if (this.customConfirmHandler) {
+      const result = this.customConfirmHandler();
+      if (result instanceof Promise) {
+        return await result;
+      }
+      return result;
+    }
+    
+    // In a real browser environment, this would show a native confirm dialog
+    // For testing, we use a global confirmation handler if available
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as {
+        lfs?: {
+          confirmDisconnect?: () => Promise<boolean> | boolean;
+        };
+      };
+      
+      if (w.lfs?.confirmDisconnect) {
+        const result = w.lfs.confirmDisconnect();
+        if (result instanceof Promise) {
+          return await result;
+        }
+        return result;
+      }
+    }
+    
+    // Default: auto-confirm in non-browser environments
+    return true;
+  }
+
+  /**
+   * Perform the actual disconnect operation.
+   * Closes WebRTC, sends disconnect message, and transitions to IDLE.
+   */
+  private performDisconnect(): boolean {
     const target = this.state.connectedDeviceId;
     if (target === null) return false;
 
     // Close WebRTC connection
     this.cleanupWebRTC();
+
+    // Clear connection state (files, queue, etc.)
+    this.clearConnectionState();
 
     this.client.send({
       type: 'disconnect',
@@ -352,6 +475,73 @@ export class ConnectionViewModel {
       dataChannelOpen: false,
     }));
     return true;
+  }
+
+  /**
+   * Handle idle timeout - transition to IDLE without confirmation or toast.
+   */
+  private handleIdleTimeout(): void {
+    if (this.state.connectionState !== ConnectionState.CONNECTED) return;
+    
+    console.info('[IdleTimer] timeout reached - transitioning to IDLE');
+    
+    // Clear connection state (files, queue, IndexedDB, cache)
+    this.clearConnectionState();
+    
+    // Close WebRTC connection
+    this.cleanupWebRTC();
+    
+    try {
+      this.sm.dispatch('DISCONNECT');
+    } catch {
+      /* ignore */
+    }
+    this.update((prev) => ({
+      ...prev,
+      connectionState: ConnectionState.IDLE,
+      connectedDeviceId: null,
+      dataChannelOpen: false,
+    }));
+  }
+
+  /**
+   * Clear all connection state including files, queue, cache, and IndexedDB.
+   */
+  private clearConnectionState(): void {
+    // Clear file registry and queue
+    this.fileRegistry.clear();
+    this.fileQueue.clear();
+    this.fileStore.clear();
+    this.sentFileIds.clear();
+    this.fileProgressMap.clear();
+    console.info('[FileRegistry] cleared on disconnect');
+    
+    // Clear chunk cache
+    if (this.chunkCache) {
+      // Delete all files from the cache
+      // Note: We don't have direct access to all file IDs, so we clear by resetting
+      this.chunkCache = null;
+    }
+    
+    // Clear IndexedDB writer for this connection
+    if (this.idbWriter) {
+      void this.idbWriter.clear();
+      this.idbWriter = null;
+    }
+  }
+
+  /**
+   * Reset the idle timer - called on any control or data channel message.
+   */
+  resetIdleTimer(): void {
+    this.idleTimer?.reset();
+  }
+
+  /**
+   * Check if the idle timer is currently running.
+   */
+  isIdleTimerRunning(): boolean {
+    return this.idleTimer?.isRunning() ?? false;
   }
 
   /**
@@ -865,6 +1055,9 @@ export class ConnectionViewModel {
       this.webrtc.on(
         'data-channel-message',
         (payload: { channel: 'control' | 'data'; data: string | ArrayBuffer }) => {
+          // Reset idle timer on any message
+          this.resetIdleTimer();
+          
           if (payload.channel === 'data' && typeof payload.data === 'string' && payload.data === 'hello') {
             this.loggerFor('WebRTC').info('received hello message on data channel');
             // Log to console as required by the issue
@@ -885,7 +1078,28 @@ export class ConnectionViewModel {
       this.webrtc.on('data-channel-open', (channels) => {
         this.loggerFor('WebRTC').info('data channels open - initializing file transfer');
         this.controlChannel = channels.control;
+        
+        // Initialize IndexedDB writer for this connection if using IndexedDB backend
+        if (StorageBackendFactory.detect() === 'indexeddb') {
+          this.idbWriter = new IndexedDBWriter(targetDeviceId);
+          this.loggerFor('IndexedDB').info('initialized IndexedDB writer for connection', { targetDeviceId });
+        }
+        
         this.initFileTransfer(channels.data, channels.control);
+      }),
+    );
+
+    // Handle ICE connection state changes for server-side disconnect detection
+    this.unsubscribers.push(
+      this.webrtc.on('ice-connection-state-change', (state: RTCIceConnectionState) => {
+        this.loggerFor('WebRTC').info('ICE connection state changed', { state });
+        
+        // If ICE connection becomes disconnected or failed, treat as server-side disconnect
+        if (state === 'disconnected' || state === 'failed') {
+          this.loggerFor('WebRTC').warn('ICE connection disconnected/failed - initiating disconnect');
+          // Perform disconnect without user confirmation (server-side)
+          this.performDisconnect();
+        }
       }),
     );
 
