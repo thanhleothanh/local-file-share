@@ -3,6 +3,7 @@ import { Logger } from '@lfs/shared';
 import { runCleanStateHook } from './cleanState.js';
 import { DeviceIdentity, WebSocketAutoReconnect, WebSocketClient } from './signaling/index.js';
 import { ConnectionViewModel } from './ui/ConnectionViewModel.js';
+import { toast } from './ui/toast-manager.js';
 
 const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
 
@@ -37,6 +38,14 @@ async function bootstrap(): Promise<void> {
   if (shell) {
     shell.viewModel = viewModel;
   }
+
+  interface LfsGlobals {
+    toast: typeof toast;
+    viewModel: ConnectionViewModel;
+  }
+  const w = window as unknown as { lfs: LfsGlobals };
+  w.lfs = { toast, viewModel };
+
   document.documentElement.dataset.lfsReady = 'true';
 }
 

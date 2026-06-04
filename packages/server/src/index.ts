@@ -5,8 +5,7 @@ const address = server.getAddress();
 if (address) {
 }
 
-const shutdown = (signal: string): void => {
-  console.log(`[server] received ${signal}, shutting down`);
+const shutdown = (_signal: string): void => {
   void server.close().then(() => process.exit(0));
 };
 
