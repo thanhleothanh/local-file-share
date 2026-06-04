@@ -1,11 +1,13 @@
 import type { DeviceDescriptor, AnySignalingMessage } from '@lfs/shared';
 import { ConnectionState, ConnectionStateMachine } from '@lfs/shared';
+import type { FileState } from '../files/FileStateMachine.js';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
 import { SCTPBackpressure } from '../webrtc/SCTPBackpressure.js';
-import { FileSender, FileReceiver, FileSystemAccessWriter } from '../files/index.js';
+import { FileSender, FileReceiver, FileSystemAccessWriter, FileRegistry, FileQueue, type FileEntry } from '../files/index.js';
 import { NackHandler, createChunkCache, MAX_NACK_ROUNDS, CHUNK_SIZE, type ChunkCache, decodeChunk } from '@lfs/shared';
 import type { ChunkRequestNackMessage, TransferDoneMessage, DecodedChunk } from '@lfs/shared';
+import { generateUuid } from '@lfs/shared';
 
 export interface ConnectionViewModelState {
   devices: readonly DeviceDescriptor[];
@@ -49,6 +51,9 @@ export class ConnectionViewModel {
   private controlChannel: RTCDataChannel | null = null;
   private chunkCache: ChunkCache | null = null;
   private nackHandler: NackHandler | null = null;
+  // File state management
+  private fileRegistry: FileRegistry = new FileRegistry();
+  private fileQueue: FileQueue = new FileQueue();
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -319,6 +324,101 @@ export class ConnectionViewModel {
       dataChannelOpen: false,
     }));
     return true;
+  }
+
+  /**
+   * Create a file entry for the registry.
+   */
+  private createFileEntry(file: File, fileId: string, state: FileState): FileEntry {
+    return {
+      fileId,
+      fileName: file.name,
+      fileSize: file.size,
+      state,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Send multiple files to the connected device.
+   * Implements batch offer: sends FILE_OFFER with all files, then waits for acceptance.
+   * Only works when in CONNECTED state and data channels are open.
+   *
+   * @param files - The files to send
+   * @returns Promise that resolves when all files are sent and acknowledged
+   */
+  async sendFiles(files: File[]): Promise<void> {
+    if (this.state.connectionState !== ConnectionState.CONNECTED || !this.controlChannel) {
+      throw new Error('Cannot send files: not connected or control channel not initialized');
+    }
+
+    if (files.length === 0) {
+      return;
+    }
+
+    // Generate file IDs for all files
+    const fileEntries: FileEntry[] = [];
+    const batchId = generateUuid();
+
+    for (const file of files) {
+      const fileId = generateUuid();
+      const entry = this.createFileEntry(file, fileId, 'PENDING');
+      this.fileRegistry.add(entry);
+      this.fileQueue.enqueue(entry);
+      fileEntries.push(entry);
+
+      // Log state transition as required
+      console.info(`[FileState] ${fileId}: undefined → PENDING (OFFER)`);
+    }
+
+    // Send FILE_OFFER message with batch
+    const offerMessage = JSON.stringify({
+      type: 'FILE_OFFER',
+      from: this.state.localDeviceId,
+      data: {
+        batchId,
+        files: fileEntries.map((entry) => ({
+          fileId: entry.fileId,
+          fileName: entry.fileName,
+          fileSize: entry.fileSize,
+          mimeType: 'application/octet-stream', // TODO: detect actual mime type
+        })),
+      },
+    });
+
+    try {
+      this.controlChannel.send(offerMessage);
+      this.loggerFor('FileSender').info('sent FILE_OFFER', { batchId, fileCount: files.length });
+    } catch (error) {
+      this.loggerFor('FileSender').warn('Failed to send FILE_OFFER', { error });
+      // Clean up entries that weren't sent
+      for (const entry of fileEntries) {
+        this.fileRegistry.remove(entry.fileId);
+        this.fileQueue.remove(entry.fileId);
+      }
+      throw error;
+    }
+
+    // For now, send files one at a time (queue advancement will be implemented in next iteration)
+    // TODO: Wait for FILE_ACCEPT before starting transfer
+    for (const file of files) {
+      const fileId = this.fileRegistry.getAll().find(
+        (entry) => entry.fileName === file.name && entry.fileSize === file.size,
+      )?.fileId;
+      if (fileId) {
+        // Transition to TRANSFERRING (skipping QUEUED for now)
+        this.fileRegistry.transition(fileId, 'START');
+        try {
+          await this.sendFile(file, fileId, true);
+          // On success, transition to COMPLETED
+          this.fileRegistry.transition(fileId, 'COMPLETE');
+        } catch (error) {
+          // On failure, transition to FAILED
+          this.fileRegistry.transition(fileId, 'FAIL');
+        }
+      }
+    }
   }
 
   /**
@@ -694,13 +794,95 @@ export class ConnectionViewModel {
   }
 
   /**
-   * Handle an incoming control message (e.g., CHUNK_ACK, CHUNK_REQUEST_NACK, TRANSFER_DONE).
+   * Handle incoming FILE_OFFER message.
+   * Adds offered files to the registry with PENDING state.
+   */
+  private handleFileOffer(parsed: { type: string; from: string; data?: unknown }): void {
+    const data = parsed.data as { batchId: string; files: Array<{ fileId: string; fileName: string; fileSize: number; mimeType: string }> } | undefined;
+    if (!data?.files || !Array.isArray(data.files)) {
+      this.loggerFor('FileOffer').warn('Invalid FILE_OFFER message', { data });
+      return;
+    }
+
+    this.loggerFor('FileOffer').info('received FILE_OFFER', { from: parsed.from, fileCount: data.files.length, batchId: data.batchId });
+
+    for (const fileInfo of data.files) {
+      const entry: FileEntry = {
+        fileId: fileInfo.fileId,
+        fileName: fileInfo.fileName,
+        fileSize: fileInfo.fileSize,
+        state: 'PENDING',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.fileRegistry.add(entry);
+      this.fileQueue.enqueue(entry);
+
+      // Log state transition as required
+      console.info(`[FileState] received offer ${JSON.stringify({ fileId: fileInfo.fileId, name: fileInfo.fileName, size: fileInfo.fileSize })}`);
+    }
+  }
+
+  /**
+   * Handle incoming FILE_ACCEPT message.
+   * Transitions the file state from PENDING to QUEUED or TRANSFERRING.
+   */
+  private handleFileAccept(parsed: { type: string; from: string; data?: unknown }): void {
+    const data = parsed.data as { fileId: string; batchId: string } | undefined;
+    if (!data?.fileId) {
+      this.loggerFor('FileAccept').warn('Invalid FILE_ACCEPT message', { data });
+      return;
+    }
+
+    this.loggerFor('FileAccept').info('received FILE_ACCEPT', { from: parsed.from, fileId: data.fileId });
+
+    // Transition the file to QUEUED or TRANSFERRING
+    // If another file is TRANSFERRING, transition to QUEUED, else TRANSFERRING
+    const transferringFiles = this.fileRegistry.getByState('TRANSFERRING');
+    const event: 'START' | 'ACCEPT' = transferringFiles.length > 0 ? 'ACCEPT' : 'START';
+    this.fileRegistry.transition(data.fileId, event);
+  }
+
+  /**
+   * Handle incoming FILE_REJECT message.
+   * Transitions the file state to REJECTED.
+   */
+  private handleFileReject(parsed: { type: string; from: string; data?: unknown }): void {
+    const data = parsed.data as { fileId: string; batchId: string; reason?: string } | undefined;
+    if (!data?.fileId) {
+      this.loggerFor('FileReject').warn('Invalid FILE_REJECT message', { data });
+      return;
+    }
+
+    this.loggerFor('FileReject').info('received FILE_REJECT', { from: parsed.from, fileId: data.fileId, reason: data.reason });
+
+    // Transition the file to REJECTED
+    this.fileRegistry.transition(data.fileId, 'REJECT');
+  }
+
+  /**
+   * Handle an incoming control message (e.g., FILE_OFFER, FILE_ACCEPT, CHUNK_ACK, CHUNK_REQUEST_NACK, TRANSFER_DONE).
    */
   private handleControlMessage(message: string): void {
     try {
       const parsed = JSON.parse(message) as { type: string; from: string; data?: unknown };
 
       switch (parsed.type) {
+        case 'FILE_OFFER':
+          // Handle incoming file offer from peer
+          this.handleFileOffer(parsed);
+          break;
+
+        case 'FILE_ACCEPT':
+          // Handle file acceptance from peer
+          this.handleFileAccept(parsed);
+          break;
+
+        case 'FILE_REJECT':
+          // Handle file rejection from peer
+          this.handleFileReject(parsed);
+          break;
+
         case 'CHUNK_ACK':
           if (this.fileSender) {
             const data = parsed.data as { fileId: string; index: number } | undefined;

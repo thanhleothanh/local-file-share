@@ -6,7 +6,7 @@ Derived from `.docs/prds/0007-state-machines-queue-and-lifecycle.md` (FileStateM
 
 ## Status
 
-In Progress — 2026-06-04. FileStateMachine, FileQueue, and FileRegistry modules created with full implementations. Unit tests added (49 tests). 456 total tests pass.
+In Progress — 2026-06-04. FileStateMachine, FileQueue, and FileRegistry modules created and wired into ConnectionViewModel. Multi-file picker implemented. FILE_OFFER, FILE_ACCEPT, and FILE_REJECT message handling added. State transitions logged to console. 456 total tests pass.
 
 ## What to build
 
@@ -21,6 +21,11 @@ Implemented:
 - `FileRegistry` with add, update, get, getAll (sorted by createdAt descending), getByState, getActiveFiles, has, remove, clear, size, transition, getPendingFiles, getQueuedFiles, getTransferringFiles, getStateCounts
 - Exports added to packages/client/src/files/index.ts
 - Unit tests for all three modules
+- FileRegistry and FileQueue instances added to ConnectionViewModel
+- sendFiles method implemented with FILE_OFFER batch message support
+- FILE_OFFER, FILE_ACCEPT, FILE_REJECT message handlers added to ConnectionViewModel
+- Multi-file picker support added to connected-card component
+- State transitions logged to console on both sender and receiver sides
 
 ## Acceptance criteria
 
@@ -30,15 +35,15 @@ Implemented:
 - [x] Unit test: exhaustive transition table for `FileStateMachine` (12 valid transitions + all others return invalid)
 - [x] Unit test: `FileQueue.startNextFile` skips a file in `CANCELLED` state
 - [x] Unit test: `FileRegistry.getAll` sorts by `createdAt` descending
-- [ ] The Connection tab's "Send test file" button is replaced with a multi-file `<input type="file" multiple>` picker
-- [ ] On send, all picked files are offered at once via `FILE_OFFER` on the control channel; each gets a fresh `fileId` and is added to the sender's `FileRegistry` with state PENDING
-- [ ] The receiver logs the receipt of each offer: `console.info('[FileState] received offer', {fileId, name, size})` and adds the file to its `FileRegistry` with state PENDING
-- [ ] Clicking a new "Accept" button (or test helper) on the receiver sends `FILE_ACCEPT`; the state transitions to QUEUED if any other file is TRANSFERRING, else TRANSFERRING
-- [ ] While a file is TRANSFERRING, all other "Accept" buttons are disabled
-- [ ] When a file completes, the next QUEUED file starts automatically (`FileQueue.startNextFile`)
-- [ ] The sender can cancel a PENDING file via a new "Cancel" button; the receiver sees the row disappear
+- [x] The Connection tab's "Send test file" button is replaced with a multi-file `<input type="file" multiple>` picker (via connected-card)
+- [x] On send, all picked files are offered at once via `FILE_OFFER` on the control channel; each gets a fresh `fileId` and is added to the sender's `FileRegistry` with state PENDING
+- [x] The receiver logs the receipt of each offer: `console.info('[FileState] received offer', {fileId, name, size})` and adds the file to its `FileRegistry` with state PENDING
+- [ ] Clicking a new "Accept" button (or test helper) on the receiver sends `FILE_ACCEPT`; the state transitions to QUEUED if any other file is TRANSFERRING, else TRANSFERRING (requires Files tab UI from Issue 00015)
+- [ ] While a file is TRANSFERRING, all other "Accept" buttons are disabled (requires Files tab UI from Issue 00015)
+- [ ] When a file completes, the next QUEUED file starts automatically (`FileQueue.startNextFile`) (requires integration with TransferCompletion)
+- [ ] The sender can cancel a PENDING file via a new "Cancel" button; the receiver sees the row disappear (requires Files tab UI from Issue 00015)
 - [x] Both sides log every state transition: `console.info('[FileState] {fileId}: {oldState} → {newState} ({event})')`
-- [ ] E2E test: A and B connect; A picks 3 files; all 3 appear PENDING on B; B accepts file 2 first; files 1 and 3 have disabled Accept buttons; file 2 transfers and completes; B accepts file 1; file 1 transfers; A cancels file 3; file 3 disappears from B's list
+- [ ] E2E test: A and B connect; A picks 3 files; all 3 appear PENDING on B; B accepts file 2 first; files 1 and 3 have disabled Accept buttons; file 2 transfers and completes; B accepts file 1; file 1 transfers; A cancels file 3; file 3 disappears from B's list (requires Files tab UI from Issue 00015)
 - [x] All previously passing tests still pass (456 tests)
 
 ## Blocked by

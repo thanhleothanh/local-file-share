@@ -120,6 +120,18 @@ export class AppShell extends LitElement {
     }
   }
 
+  private async handleFilesSelected(event: CustomEvent<{ files: File[] }>): Promise<void> {
+    const files = event.detail.files;
+    if (!files || files.length === 0 || !this.viewModel) return;
+
+    try {
+      // Use batch send with FILE_OFFER message
+      await this.viewModel.sendFiles(files);
+    } catch (error) {
+      console.error('[AppShell] Failed to send files:', error);
+    }
+  }
+
   override render() {
     const state = this.vmState;
     const devices = state?.devices ?? [];
@@ -217,6 +229,7 @@ export class AppShell extends LitElement {
             mode="connected"
             @disconnect-clicked=${() => this.viewModel?.disconnect()}
             @file-selected=${(ev: CustomEvent<{ file: File }>) => this.handleFileSelected(ev)}
+            @files-selected=${(ev: CustomEvent<{ files: File[] }>) => this.handleFilesSelected(ev)}
           ></connected-card>`
           : null
       }

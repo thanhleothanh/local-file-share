@@ -68,6 +68,8 @@ export class ConnectedCard extends LitElement {
   private onSendTestFileClick(): void {
     const input = this.renderRoot?.querySelector('input[type="file"]') as HTMLInputElement | null;
     if (input) {
+      // Allow multi-file selection
+      input.multiple = true;
       input.click();
     }
   }
@@ -75,14 +77,16 @@ export class ConnectedCard extends LitElement {
   private onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
+      // Support multi-file selection for batch offer
+      const files = Array.from(input.files);
       this.dispatchEvent(
-        new CustomEvent('file-selected', {
-          detail: { file: input.files[0] },
+        new CustomEvent('files-selected', {
+          detail: { files },
           bubbles: true,
           composed: true,
         }),
       );
-      // Reset input so the same file can be selected again
+      // Reset input so the same files can be selected again
       input.value = '';
     }
   }
