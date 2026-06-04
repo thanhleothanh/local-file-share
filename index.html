@@ -31,8 +31,8 @@
 
         /* The HTML5 `hidden` attribute applies `display: none` via the
            UA stylesheet, but our author-CSS `display: flex` / `display:
-           grid` on .step-pane, .action-grid, .scanner-view, etc. would
-           otherwise win. This rule keeps `hidden` authoritative. */
+           grid` on .action-grid, etc. would otherwise win. This rule
+           keeps `hidden` authoritative. */
         [hidden] {
             display: none !important;
         }
@@ -206,14 +206,7 @@
             color: var(--accent);
         }
 
-        .qr-loading {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem 1rem;
-            text-align: center;
-        }
+
 
         .spinner {
             width: 40px;
@@ -288,62 +281,9 @@
             background: #3E8A59;
         }
 
-        .qr-container {
-            text-align: center;
-            margin: 0;
-            width: 100%;
-        }
 
-        .qr-container canvas,
-        .qr-container img {
-            width: 100%;
-            max-height: 480px;
-            background: #FFFFFF;
-            padding: 0.25rem;
-        }
 
-        .qr-actions {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            margin-top: 1rem;
-        }
 
-        .scanner-view {
-            position: relative;
-            width: 100%;
-            height: 300px;
-            background: var(--bg-secondary);
-            overflow: hidden;
-        }
-
-        .scanner-view video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .scanner-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            pointer-events: none;
-            border: 2px solid rgba(255, 78, 0, 0.3);
-        }
-
-        .scanner-guide {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(30, 37, 45, 0.9);
-            padding: 1rem;
-            text-align: center;
-            color: var(--accent);
-            pointer-events: none;
-        }
 
         .connection-info {
             margin-top: 1rem;
@@ -885,12 +825,7 @@
             line-height: 1.3;
         }
 
-        /* Step 1 / 2 QR container — uses existing .qr-container styles. */
-        #step1Initiator .qr-container,
-        #step2Joiner .qr-container {
-            margin: 0.5rem 0;
-            width: 100%;
-        }
+
 
         /* Step 3 device cards. Same visual language as .file-row. */
         .device-cards {

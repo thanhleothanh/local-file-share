@@ -2,10 +2,6 @@
  * Main Application Entry Point
  * Orchestrates WebSocket-based device discovery and WebRTC management
  * (ADR-0031: WebSocket Signaling Server)
- * 
- * Note: QR-related functions and state are deprecated (Issue 007)
- * and will be removed in future cleanup. Current flow uses WebSocket
- * for device discovery and signaling.
  */
 
 import {
@@ -50,13 +46,8 @@ let devices = []; // List of connected devices from WebSocket
 let connectedDevice = null; // Currently connected device
 
 // Connection request timeout tracking (ADR-0038)
-let pendingConnectionRequests = {}; // deviceId -> { timeoutId, timestamp }
+let pendingConnectionRequests = {}; // deviceId -> { timestamp }
 const CONNECTION_REQUEST_TIMEOUT = 30000; // 30 seconds
-
-// WebRTC state (kept for backward compatibility with webrtcManager)
-// Note: QR-related state variables removed (Issue 007)
-let connectionRole = 'idle'; // 'idle' | 'initiator' | 'joiner' (kept for backward compatibility)
-let currentStep = 3; // Start at step 3 (connected) for WebSocket-based flow
 
 /**
  * Format file size for display
@@ -129,52 +120,21 @@ function hideLoading() {
 }
 
 /**
- * Update UI based on connection state and connectionRole/currentStep.
- * Drives both the 3-dot progress bar and the per-step content panes.
- * @param {string} [oldState] - Previous connection state (only used to
- *   detect genuine CLOSED transitions; defaults to the current state).
+ * Update UI based on connection state.
+ * @param {string} [oldState] - Previous connection state.
  */
 function updateUI(oldState = webrtcManager.state) {
-  // Sync our step/role state to the underlying WebRTC state.
-  const state = webrtcManager.state;
   const isConnected = webrtcManager.isConnected();
 
+  // Clear the in-memory file list when disconnecting
+  const state = webrtcManager.state;
   if (
-    state === ConnectionState.CONNECTED ||
-    state === ConnectionState.TRANSFERRING
+    oldState === ConnectionState.CONNECTED &&
+    (state === ConnectionState.CLOSED || state === ConnectionState.FAILED)
   ) {
-    currentStep = 3;
-  } else if (
-    state === ConnectionState.CLOSED &&
-    oldState !== ConnectionState.CLOSED
-  ) {
-    // Genuine transition into CLOSED (user clicked Disconnect, peer
-    // left, or we closed a live connection). Reset to step 1 / idle.
-    // Skipping the reset when we were already CLOSED avoids
-    // clobbering the role we just set in createConnection /
-    // scanOfferQR before calling close() to clean up.
-    connectionRole = 'idle';
-    currentStep = 1;
-    offerQRData = null;
-    currentScanMode = null;
-  } else if (state === ConnectionState.FAILED) {
-    // Stay on whichever step we were on, but surface the error.
-  }
-
-  renderStepProgress();
-  renderStepContent();
-  renderDeviceInfo();
-
-  // Auto-start/stop the step-2-initiator scanner based on which view
-  // is currently visible. The scanner's video element lives inside
-  // #step2Initiator and the user never has to tap a button to open
-  // it — the camera just comes on when they reach this view and goes
-  // off again when they leave it.
-  const wantAnswerScanner = currentStep === 2 && connectionRole === 'initiator';
-  if (wantAnswerScanner && !answerScannerActive) {
-    scanAnswerQR();
-  } else if (!wantAnswerScanner && answerScannerActive) {
-    stopAnswerScanner();
+    fileTransferManager.clear().catch((err) => {
+      console.error('Failed to clear files on disconnect:', err);
+    });
   }
 
   // Files header `+` button: visible only while the connection is
@@ -182,51 +142,8 @@ function updateUI(oldState = webrtcManager.state) {
   // button signals "nothing to do" cleanly.
   sendFilesBtn.hidden = !connectedDevice;
 
+  renderDeviceList();
   renderFileList();
-}
-
-/**
- * Highlight the active/completed steps in the dot progress bar.
- */
-function renderStepProgress() {
-  stepDots.forEach((dot) => {
-    const n = Number(dot.dataset.step);
-    dot.classList.toggle('active', n === currentStep);
-    dot.classList.toggle('completed', n < currentStep);
-  });
-  stepLines.forEach((line) => {
-    const n = Number(line.dataset.line);
-    line.classList.toggle('active', n < currentStep);
-  });
-}
-
-/**
- * Show only the active step pane and, within it, the role-appropriate
- * sub-section (idle / initiator / joiner).
- */
-function renderStepContent() {
-  for (const n of [1, 2, 3]) {
-    stepPanes[n].hidden = currentStep !== n;
-  }
-
-  if (currentStep === 1) {
-    step1Idle.hidden = connectionRole !== 'idle';
-    step1Initiator.hidden = connectionRole !== 'initiator';
-    step1Joiner.hidden = connectionRole !== 'joiner';
-  } else if (currentStep === 2) {
-    step2Initiator.hidden = connectionRole !== 'initiator';
-    step2Joiner.hidden = connectionRole !== 'joiner';
-  }
-}
-
-/**
- * Populate the local device info on the step 3 device card.
- * Peer card stays a generic placeholder — device-type is not exchanged
- * over the control channel by design (per "no functionality changes").
- */
-function renderDeviceInfo() {
-  if (currentStep !== 3) return;
-  myDeviceType.textContent = getDeviceType();
 }
 
 /**
@@ -719,289 +636,7 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-/**
- * Initiator path: create a new connection and render the offer QR.
- * Sets connectionRole='initiator' and currentStep=1 (offer QR shown
- * until the user clicks "Proceed to scan Answer QR"
- * to advance to step 2).
- */
-async function createConnection() {
-  try {
-    // Close any existing connection first (ADR-0017: 1:1 connections only)
-    if (webrtcManager.state !== ConnectionState.CLOSED) {
-      await webrtcManager.close();
-    }
 
-    // Immediately show loading state
-    connectionRole = 'initiator';
-    currentStep = 1;
-    offerQRData = null;
-    updateUI();
-    
-    // Show loading, hide QR content
-    const offerQRLoading = document.getElementById('offerQRLoading');
-    const offerQRContent = document.getElementById('offerQRContent');
-    
-    if (offerQRLoading) offerQRLoading.style.display = 'block';
-    if (offerQRContent) offerQRContent.hidden = true;
-
-    const result = await webrtcManager.generateOfferQR();
-    offerQRData = result.qrData;
-    currentScanMode = null;
-
-    await qrHandler.renderQRCodeToCanvas(offerQRData, offerQRCanvas);
-    
-    // Hide loading, show QR content
-    if (offerQRLoading) offerQRLoading.style.display = 'none';
-    if (offerQRContent) offerQRContent.hidden = false;
-    
-    updateUI();
-  } catch (error) {
-    console.error('Failed to create connection:', error);
-    showToast('Failed to create connection: ' + error.message);
-    // Hide loading on error
-    const offerQRLoading = document.getElementById('offerQRLoading');
-    if (offerQRLoading) offerQRLoading.style.display = 'none';
-    resetToIdle();
-  }
-}
-
-/**
- * Joiner path: open the camera and scan an offer QR.
- * Sets connectionRole='joiner' and currentStep=1 (scanner view).
- * On successful scan, advances to step 2 (show answer QR).
- */
-async function scanOfferQR() {
-  try {
-    if (qrHandler.isScanning()) {
-      qrHandler.stopScanning();
-    }
-
-    // Close any existing connection first (ADR-0017)
-    if (webrtcManager.state !== ConnectionState.CLOSED) {
-      await webrtcManager.close();
-      offerQRData = null;
-    }
-
-    currentScanMode = 'OFFER';
-    connectionRole = 'joiner';
-    currentStep = 1;
-    updateUI();
-
-    await qrHandler.startScanning(
-      scannerVideo,
-      (qrData) => {
-        qrHandler.stopScanning();
-        handleQRScanResult(qrData, 'OFFER');
-      },
-      (error) => {
-        console.error('Scan error:', error);
-        showToast('Scan error: ' + error.message);
-        qrHandler.stopScanning();
-        // Roll back to idle so the user can try again.
-        connectionRole = 'idle';
-        currentStep = 1;
-        updateUI();
-      },
-    );
-  } catch (error) {
-    console.error('Failed to start scanning:', error);
-    showToast('Failed to access camera: ' + error.message);
-    qrHandler.stopScanning();
-    connectionRole = 'idle';
-    currentStep = 1;
-    updateUI();
-  }
-}
-
-/**
- * Initiator at step 2: open the camera and scan the answer QR.
- * Called automatically by updateUI() when the step-2-initiator view
- * becomes visible — no button click required.
- */
-async function scanAnswerQR() {
-  if (answerScannerActive) return;
-  answerScannerActive = true;
-  currentScanMode = 'ANSWER';
-
-  try {
-    await qrHandler.startScanning(
-      answerScannerVideo,
-      (qrData) => {
-        qrHandler.stopScanning();
-        // On success, the WebRTC state listener will set
-        // currentStep = 3 and the wantAnswerScanner check in
-        // updateUI() will call stopAnswerScanner().
-        handleQRScanResult(qrData, 'ANSWER');
-      },
-      (error) => {
-        console.error('Scan error:', error);
-        showToast('Scan error: ' + error.message);
-        qrHandler.stopScanning();
-        stopAnswerScanner();
-      },
-    );
-  } catch (error) {
-    console.error('Failed to start scanning:', error);
-    showToast('Failed to access camera: ' + error.message);
-    qrHandler.stopScanning();
-    stopAnswerScanner();
-  }
-}
-
-/**
- * Stop the step-2-initiator camera and clear the video source. Safe to
- * call even if the scanner isn't running.
- */
-function stopAnswerScanner() {
-  answerScannerActive = false;
-  if (answerScannerVideo && answerScannerVideo.srcObject) {
-    answerScannerVideo.srcObject.getTracks().forEach((t) => t.stop());
-    answerScannerVideo.srcObject = null;
-  }
-}
-
-/**
- * Stop every scanner/camera the Connection tab might have running
- * (offer scan via qrHandler, answer scan via stopAnswerScanner). Safe
- * to call when nothing is active.
- */
-function stopAllScanners() {
-  qrHandler.stopScanning();
-  stopAnswerScanner();
-}
-
-/**
- * Close the underlying WebRTC connection. WebRTC-specific concern:
- * tears down the peer connection and data channels. Does NOT touch
- * any UI state — callers compose this with `resetToIdle()` if they
- * also want the panel to drop back to step 1.
- */
-async function teardownConnection() {
-  await webrtcManager.close();
-}
-
-/**
- * Reset the Connection tab's local state to step 1 / idle: clear
- * the handshake variables, stop any in-progress scans, and re-render.
- * Does NOT touch the WebRTC connection itself — for a full teardown
- * use `disconnect()` (which composes this with `teardownConnection()`).
- */
-function resetToIdle() {
-  offerQRData = null;
-  currentScanMode = null;
-  stopAllScanners();
-  connectionRole = 'idle';
-  currentStep = 1;
-  updateUI();
-}
-
-/**
- * Full "end the session" path. The in-app equivalent of reloading
- * the page: closes the WebRTC connection AND resets the UI to
- * step 1 / idle. The user-facing UX deliberately doesn't expose this
- * (per the step-3 "Reload the page to disconnect" hint), but the
- * function exists as a composition root and is exported for tests
- * and any future programmatic use.
- */
-async function disconnect() {
-  await teardownConnection();
-  resetToIdle();
-}
-
-/**
- * Cancel an in-progress offer scan (joiner wants to back out of step 1).
- * Just resets the local UI — any in-flight WebRTC state is left alone
- * and will be torn down on the next createConnection / scanOfferQR.
- */
-function cancelScanOffer() {
-  resetToIdle();
-}
-
-/**
- * Cancel an in-flight offer creation. Discards the offer QR (the user
- * is no longer showing it) and returns to the step 1 choice screen.
- * Just resets the local UI — the WebRTC state stays at NEW and will
- * be torn down on the next createConnection / scanOfferQR.
- */
-function cancelOfferCreation() {
-  resetToIdle();
-}
-
-/**
- * Cancel an in-progress answer scan and abandon the in-flight offer.
- * Just resets the local UI — the WebRTC state is left as-is.
- */
-function cancelAnswerScan() {
-  resetToIdle();
-}
-
-/**
- * Initiator confirms they have shown the offer QR; advance to step 2
- * (scan answer). Per design decision: this is a manual advance so the
- * joiner has a guaranteed window to scan the offer.
- */
-function goToStep2FromInitiator() {
-  if (connectionRole !== 'initiator' || currentStep !== 1) return;
-  currentStep = 2;
-  updateUI();
-}
-
-/**
- * Handle the result of a QR code scan.
- * @param {Object} qrData - Parsed QR data
- * @param {string} mode - Expected mode ('OFFER' or 'ANSWER')
- */
-async function handleQRScanResult(qrData, mode) {
-  try {
-    if (qrData.type === 'OFFER' && mode === 'OFFER') {
-      // Immediately show loading state for step 2
-      connectionRole = 'joiner';
-      currentStep = 2;
-      updateUI();
-      
-      // Show loading, hide QR content
-      const answerQRLoading = document.getElementById('answerQRLoading');
-      const answerQRContent = document.getElementById('answerQRContent');
-      
-      if (answerQRLoading) answerQRLoading.style.display = 'block';
-      if (answerQRContent) answerQRContent.hidden = true;
-
-      const result = await webrtcManager.processOfferQR(qrData);
-      currentScanMode = 'OFFER';
-
-      await qrHandler.renderQRCodeToCanvas(result.qrData, answerQRCanvas);
-      
-      // Hide loading, show QR content
-      if (answerQRLoading) answerQRLoading.style.display = 'none';
-      if (answerQRContent) answerQRContent.hidden = false;
-      
-      // Intentionally no "Offer received!" success alert here — the
-      // step 1 -> step 2 transition with the answer QR appearing is
-      // the signal. A green dialog here would be redundant with the
-      // prompt "Show this QR to the other device" already shown on
-      // step 2.
-      updateUI();
-    } else if (qrData.type === 'ANSWER' && mode === 'ANSWER') {
-      await webrtcManager.processAnswerQR(qrData);
-      // Step transition happens via the WebRTC state listener (CONNECTED → step 3).
-      // Intentionally no "Connecting…" alert here — only the initiator
-      // would see it, which creates a brief UI asymmetry with the
-      // joiner. The dot progress bar moving to step 3 is the signal.
-      updateUI();
-    } else {
-      throw new Error(`Expected ${mode} QR code but got ${qrData.type}`);
-    }
-  } catch (error) {
-    console.error('Failed to process QR code:', error);
-    qrHandler.stopScanning();
-    showToast('Failed to process QR code: ' + error.message);
-    // Hide loading on error
-    const answerQRLoading = document.getElementById('answerQRLoading');
-    if (answerQRLoading) answerQRLoading.style.display = 'none';
-    updateUI();
-  }
-}
 
 // Setup WebRTC event listeners
 webrtcManager.on('stateChange', (newState, oldState) => {
@@ -1023,20 +658,16 @@ webrtcManager.on('stateChange', (newState, oldState) => {
   }
 
   if (newState === ConnectionState.FAILED) {
-    // Peer-disconnect lifecycle event. Reset the UI right away so it
-    // matches what the other device sees (a clean reload). No toast
-    // here: the dot progress bar jumping back to step 1 is the signal,
-    // and a delayed "Connection failed" / "ICE negotiation failed"
-    // toast would be asymmetric across the two devices and not
-    // actionable for the user.
-    resetToIdle();
+    // Peer-disconnect lifecycle event. Update UI to reflect disconnected state.
+    // No toast here as the UI change is the signal.
+    connectedDevice = null;
+    updateUI(oldState);
     return;
   }
 
-  // Stop any in-progress scan if the underlying connection went away.
+  // Clear connected device when connection closes
   if (newState === ConnectionState.CLOSED) {
-    qrHandler.stopScanning();
-    stopAnswerScanner();
+    connectedDevice = null;
   }
 
   updateUI(oldState);
@@ -1530,7 +1161,6 @@ function downloadFile(fileId) {
 init();
 
 // Expose handlers to window for inline onclick="..." in index.html (module scope is not global)
-// QR-related handlers removed (Issue 007) - replaced with WebSocket device list
 window.acceptFileOffer = acceptFileOffer;
 window.rejectFileOffer = rejectFileOffer;
 window.downloadFile = downloadFile;
@@ -1553,15 +1183,11 @@ sendFilesBtn.addEventListener('click', () => {
 
 // Export for testing
 export {
-  // QR-related functions removed (Issue 007)
   // WebSocket device list functions
   connectToDevice,
   disconnectDevice,
   acceptConnectionRequest,
   rejectConnectionRequest,
-  disconnect,
-  teardownConnection,
-  resetToIdle,
   updateDeviceListUI,
   renderDeviceList,
   updateUI,
