@@ -57,7 +57,7 @@ If the receiver's integrity check detects missing chunks (either when the count 
 
 **Negative:**
 - The sender's UI shows "Sending…" slightly longer than before, by exactly the network round-trip + assembly time. In practice this is sub-100ms on a LAN.
-- In-memory chunk cache uses O(file size) of memory per active file. The 500MB file-size limit (ADR-0005) caps this. A failed/acknowledged file's cache is dropped immediately.
+- In-memory chunk cache uses O(file size) of memory per active file. The 500MB file-size limit (ADR-0005) caps this. A failed/acknowledged file's cache is dropped immediately. This memory concern is addressed by per-chunk ACKs (ADR-0030), which enable the sender to delete cached chunks as soon as they are acknowledged by the receiver.
 - 30s timeout on `FILE_RECEIVED` ack — if the receiver never responds (crash, network drop), the file is marked `FAILED` and the queue advances.
 
 ## Alternatives Considered
@@ -75,3 +75,6 @@ If the receiver's integrity check detects missing chunks (either when the count 
 - Chunk Size 8KB (ADR-0015) — `CHUNK_SIZE` constant
 - File State Machine (ADR-0011) — state transitions for `COMPLETED` and `FAILED`
 - Two-QR Handshake (ADR-0003) — connection establishment
+- Per-Chunk ACK for Cache Management (ADR-0030) — supersedes the O(file size) memory concern by enabling sender to delete cached chunks as soon as they are acknowledged by the receiver
+
+**Status Note**: This ADR documents the foundational NACK-based reliability mechanism. The memory concern noted in the Negative Consequences section is addressed by ADR-0030, which introduces per-chunk ACK with batching to keep sender cache bounded.

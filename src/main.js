@@ -287,12 +287,14 @@ function renderFileRow(file) {
   // Escape user-controlled strings (filename etc.) since this is rendered
   // as innerHTML.
   const safeName = escapeHtml(file.name);
+  const displayName = file.name.length > 15 ? file.name.substring(0, 15) + '...' : file.name;
+  const safeDisplayName = escapeHtml(displayName);
 
   return `
         <div class="file-row${rowClass}" data-file-id="${file.fileId}" role="listitem">
             <div class="file-row-top">
                 <span class="file-arrow ${arrowClass}" aria-hidden="true">${arrow}</span>
-                <span class="file-name" title="${safeName}">${safeName}</span>
+                <span class="file-name" title="${safeName}">${safeDisplayName}</span>
                 <span class="file-size">${formatFileSize(file.size)}</span>
             </div>
             <div class="file-status">

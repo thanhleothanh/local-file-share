@@ -100,6 +100,9 @@ export class FileTransferManager {
             case MessageType.CHUNK_REQUEST_NACK:
                 await this.handleChunkRequestNack(message);
                 break;
+            case MessageType.CHUNK_ACK:
+                this.handleChunkAck(message);
+                break;
             case MessageType.CANCELLED:
                 this.handleFileCancelled(message);
                 break;
@@ -254,6 +257,9 @@ export class FileTransferManager {
     async handleFileReject(message) {
         const file = this.files.get(message.fileId);
         if (file) {
+            // Flush any pending ACKs for this file before marking as REJECTED (ADR-0030)
+            chunkHandler.flushAckBatch(message.fileId);
+            
             file.transitionState(FileState.REJECTED);
             await this.persistFileState(file);
             
@@ -356,12 +362,87 @@ export class FileTransferManager {
     }
 
     /**
+     * Expand range format to individual indices
+     * e.g., [[0,2],[4,5]] -> [0,1,2,4,5]
+     * @param {Array<[number, number]>} ranges - Array of [start, end] ranges
+     * @returns {Array<number>} Flat array of indices
+     */
+    expandRangesToIndices(ranges) {
+        if (!ranges || !Array.isArray(ranges)) return [];
+        
+        const indices = [];
+        for (const [start, end] of ranges) {
+            for (let i = start; i <= end; i++) {
+                indices.push(i);
+            }
+        }
+        return indices;
+    }
+
+    /**
+     * Handle CHUNK_ACK — the receiver has acknowledged receipt of specific chunks.
+     * Delete the acknowledged chunks from the sender's cache to prevent memory
+     * growth (ADR-0030). This is idempotent: if a chunk was already deleted, no-op.
+     * @param {Object} message - CHUNK_ACK message with { fileId, ranges: Array<[number, number]> }
+     */
+    handleChunkAck(message) {
+        const { fileId, ranges, connId } = message;
+        
+        if (!fileId || !ranges || !Array.isArray(ranges)) {
+            console.warn('Invalid CHUNK_ACK message format:', message);
+            return;
+        }
+
+        const cache = this.sentChunkCache.get(fileId);
+        if (!cache) {
+            // File cache may have been cleared already (file completed/failed/cancelled)
+            console.log('CHUNK_ACK for file with no cache (already cleaned up):', fileId);
+            return;
+        }
+
+        const file = this.files.get(fileId);
+        if (!file) {
+            console.warn('CHUNK_ACK for unknown file:', fileId);
+            return;
+        }
+
+        // Check if this is for our connection
+        const currentConn = webrtcManager.getConnectionInfo();
+        if (connId && connId !== currentConn.connId) {
+            console.warn('CHUNK_ACK for different connection, ignoring');
+            return;
+        }
+
+        // Expand ranges to individual indices
+        const indices = this.expandRangesToIndices(ranges);
+
+        let deletedCount = 0;
+        for (const index of indices) {
+            // Idempotent: delete is a no-op if key doesn't exist
+            if (cache.delete(index)) {
+                deletedCount++;
+            }
+        }
+
+        console.log(`CHUNK_ACK: deleted ${deletedCount} of ${indices.length} cached chunks for file ${fileId.substring(0, 8)}...`);
+
+        // If cache is now empty, we can remove the fileId entry entirely
+        if (cache.size === 0) {
+            this.sentChunkCache.delete(fileId);
+            console.log(`CHUNK_ACK: cache for file ${fileId.substring(0, 8)}... is now empty, removed`);
+        }
+    }
+
+    /**
      * Handle CANCELLED message
      * @param {Object} message - CANCELLED message
      */
     async handleFileCancelled(message) {
         const file = this.files.get(message.fileId);
         if (file) {
+            // Flush any pending ACKs for this file before marking as CANCELLED (ADR-0030)
+            chunkHandler.flushAckBatch(message.fileId);
+            
             file.transitionState(FileState.CANCELLED);
             await this.persistFileState(file);
             
@@ -791,6 +872,9 @@ export class FileTransferManager {
         }
         this.ackTimers.clear();
         this.sentChunkCache.clear();
+
+        // Flush all pending ACKs on the receiver side (ADR-0030)
+        chunkHandler.flushAllAckBatches();
 
         // Snapshot the file IDs that need to be removed from IndexedDB
         // *before* we wipe the in-memory maps; the async cleanup loop
