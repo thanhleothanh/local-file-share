@@ -377,7 +377,10 @@ export class WebRTCConnection {
     this.logger.info('setting up incoming data channel', { label: channel.label });
 
     if (!this.dataChannels) {
-      this.dataChannels = { control: null as unknown as RTCDataChannel, data: null as unknown as RTCDataChannel };
+      this.dataChannels = {
+        control: null as unknown as RTCDataChannel,
+        data: null as unknown as RTCDataChannel,
+      };
     }
 
     if (channel.label === 'control') {

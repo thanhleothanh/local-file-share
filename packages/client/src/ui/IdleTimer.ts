@@ -1,6 +1,6 @@
 /**
  * IdleTimer - Manages a 10-minute idle timeout timer.
- * 
+ *
  * The timer starts when the connection enters CONNECTED state,
  * resets on any control or data channel message, and transitions
  * the connection to IDLE after 10 minutes of inactivity.
@@ -13,7 +13,7 @@ const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export class IdleTimer {
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private readonly onTimeout: IdleTimerCallback;
-  
+
   constructor(onTimeout: IdleTimerCallback) {
     this.onTimeout = onTimeout;
   }
@@ -26,7 +26,7 @@ export class IdleTimer {
     if (this.timerId !== null) {
       return; // Already running
     }
-    
+
     this.timerId = setTimeout(() => {
       this.timerId = null;
       this.onTimeout();

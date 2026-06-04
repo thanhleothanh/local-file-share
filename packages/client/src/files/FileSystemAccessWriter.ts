@@ -1,4 +1,4 @@
-import type { FileSystemWriter, FileMetadata } from './FileSystemWriter.js';
+import type { FileMetadata, FileSystemWriter } from './FileSystemWriter.js';
 
 /**
  * Writes files to disk using the File System Access API.

@@ -1,4 +1,8 @@
-import { OfferHandler, AnswerHandler, IceCandidateHandler } from '../../packages/server/src/WebRTCHandlers.js';
+import {
+  OfferHandler,
+  AnswerHandler,
+  IceCandidateHandler,
+} from '../../packages/server/src/WebRTCHandlers.js';
 import { Logger } from '@lfs/shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';

@@ -17,7 +17,10 @@ export class IceExchange {
   private readonly logger: Logger;
   private candidateBuffer: RTCIceCandidateInit[] = [];
   private remoteDescriptionSet = false;
-  private readonly listeners = new Map<keyof IceExchangeEvents, Set<(...args: any[]) => void>>();
+  private readonly listeners = new Map<
+    keyof IceExchangeEvents,
+    Set<(candidate: RTCIceCandidateInit) => void>
+  >();
 
   constructor(options: IceExchangeOptions = {}) {
     this.logger = options.logger ?? new Logger('IceExchange');
@@ -51,7 +54,7 @@ export class IceExchange {
     };
 
     this.logger.info('received ICE candidate', {
-      candidate: (data.candidate ?? '').substring(0, 50) + '...',
+      candidate: `${(data.candidate ?? '').substring(0, 50)}...`,
     });
 
     if (this.remoteDescriptionSet) {
@@ -88,7 +91,7 @@ export class IceExchange {
   /**
    * Subscribe to ICE candidate events.
    */
-  on(event: keyof IceExchangeEvents, handler: (...args: any[]) => void): () => void {
+  on(event: keyof IceExchangeEvents, handler: (candidate: RTCIceCandidateInit) => void): () => void {
     let set = this.listeners.get(event);
     if (!set) {
       set = new Set();

@@ -49,7 +49,7 @@ export class FileQueue {
     if (index !== -1) {
       this.queue.splice(index, 1);
       console.info(`[FileQueue] removed ${fileId} from queue`);
-      
+
       // If this was the current file, clear it
       if (this.currentFileId === fileId) {
         this.currentFileId = null;
@@ -98,9 +98,7 @@ export class FileQueue {
     // First, check if there's a current file that needs to be cleared
     if (this.currentFileId) {
       // Find and remove the current file from the queue
-      const currentIndex = this.queue.findIndex(
-        (entry) => entry.fileId === this.currentFileId
-      );
+      const currentIndex = this.queue.findIndex((entry) => entry.fileId === this.currentFileId);
       if (currentIndex !== -1) {
         this.queue.splice(currentIndex, 1);
       }
@@ -114,9 +112,7 @@ export class FileQueue {
         // Remove from queue and set as current
         this.queue.splice(i, 1);
         this.currentFileId = entry.fileId;
-        console.info(
-          `[FileQueue] started ${entry.fileId} (was ${entry.state}, now current)`
-        );
+        console.info(`[FileQueue] started ${entry.fileId} (was ${entry.state}, now current)`);
         return entry;
       }
     }

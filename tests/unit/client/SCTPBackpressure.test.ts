@@ -183,12 +183,12 @@ describe('SCTPBackpressure', () => {
   it('original send method is stored before replacement', async () => {
     channel.setBufferedAmount(0);
     const originalSend = channel.send.bind(channel);
-    
+
     wrappedChannel = SCTPBackpressure.wrap(channel);
-    
+
     // Call the wrapped send
     await wrappedChannel.send(new ArrayBuffer(8));
-    
+
     // The data should have been sent via the original send
     expect(channel.getSendCallCount()).toBe(1);
   });

@@ -1,4 +1,10 @@
-import { SenderTransferCompletion, ReceiverTransferCompletion, AckTimeoutError, createChunkBuffer, FileIntegrityChecker } from '@lfs/shared';
+import {
+  SenderTransferCompletion,
+  ReceiverTransferCompletion,
+  AckTimeoutError,
+  createChunkBuffer,
+  FileIntegrityChecker,
+} from '@lfs/shared';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
 // Mock ControlChannelSender
@@ -22,14 +28,26 @@ class MockControlChannelSender {
 
 // Mock NackHandler
 class MockNackHandler {
-  private readonly handledMessages: Array<{ type: string; from: string; data: { fileId: string; missingIndices: number[]; round: number } }> = [];
+  private readonly handledMessages: Array<{
+    type: string;
+    from: string;
+    data: { fileId: string; missingIndices: number[]; round: number };
+  }> = [];
 
-  async handle(message: { type: string; from: string; data: { fileId: string; missingIndices: number[]; round: number } }): Promise<number[]> {
+  async handle(message: {
+    type: string;
+    from: string;
+    data: { fileId: string; missingIndices: number[]; round: number };
+  }): Promise<number[]> {
     this.handledMessages.push(message);
     return message.data.missingIndices;
   }
 
-  getHandledMessages(): Array<{ type: string; from: string; data: { fileId: string; missingIndices: number[]; round: number } }> {
+  getHandledMessages(): Array<{
+    type: string;
+    from: string;
+    data: { fileId: string; missingIndices: number[]; round: number };
+  }> {
     return this.handledMessages;
   }
 
@@ -61,7 +79,7 @@ describe('TransferCompletion', () => {
 
         const messages = controlChannel.getSentMessages();
         expect(messages.length).toBe(1);
-        
+
         const message = JSON.parse(messages[0]);
         expect(message.type).toBe('TRANSFER_DONE');
         expect(message.from).toBe(localDeviceId);
@@ -73,7 +91,7 @@ describe('TransferCompletion', () => {
     describe('awaitFileReceived with fake timers', () => {
       it('resolves when FILE_RECEIVED is received', async () => {
         const fileId = 'file-1';
-        
+
         // Start the promise
         const promise = senderCompletion.awaitFileReceived(fileId, 30000);
 
@@ -86,10 +104,10 @@ describe('TransferCompletion', () => {
 
       it('rejects with AckTimeoutError after timeout', async () => {
         const fileId = 'file-1';
-        
+
         // Use fake timers
         vi.useFakeTimers();
-        
+
         try {
           // Start the promise with a short timeout
           const promise = senderCompletion.awaitFileReceived(fileId, 1000);
@@ -108,7 +126,7 @@ describe('TransferCompletion', () => {
       it('handles CHUNK_REQUEST_NACK by triggering retransmission', async () => {
         const fileId = 'file-1';
         const missingIndices = [1, 3, 5];
-        
+
         // Start the promise
         const promise = senderCompletion.awaitFileReceived(fileId, 30000);
 
@@ -132,7 +150,7 @@ describe('TransferCompletion', () => {
 
       it('cancels pending transfer on cancel', async () => {
         const fileId = 'file-1';
-        
+
         // Start the promise
         const promise = senderCompletion.awaitFileReceived(fileId, 30000);
 
@@ -193,7 +211,7 @@ describe('TransferCompletion', () => {
         // Verify FILE_RECEIVED was sent
         const messages = controlChannel.getSentMessages();
         expect(messages.length).toBe(1);
-        
+
         const message = JSON.parse(messages[0]);
         expect(message.type).toBe('FILE_RECEIVED');
         expect(message.from).toBe(localDeviceId);
@@ -218,7 +236,7 @@ describe('TransferCompletion', () => {
         // Verify CHUNK_REQUEST_NACK was sent
         const messages = controlChannel.getSentMessages();
         expect(messages.length).toBe(1);
-        
+
         const message = JSON.parse(messages[0]);
         expect(message.type).toBe('CHUNK_REQUEST_NACK');
         expect(message.from).toBe(localDeviceId);
@@ -237,7 +255,7 @@ describe('TransferCompletion', () => {
         // First call - round 0
         let result = receiverCompletion.handleTransferDone(fileId, totalChunks);
         expect(result).toBe(false);
-        
+
         let messages = controlChannel.getSentMessages();
         expect(messages.length).toBe(1);
         expect(JSON.parse(messages[0]).data.round).toBe(0);
@@ -246,7 +264,7 @@ describe('TransferCompletion', () => {
         controlChannel.clear();
         result = receiverCompletion.handleTransferDone(fileId, totalChunks);
         expect(result).toBe(false);
-        
+
         messages = controlChannel.getSentMessages();
         expect(messages.length).toBe(1);
         expect(JSON.parse(messages[0]).data.round).toBe(1);
@@ -255,7 +273,7 @@ describe('TransferCompletion', () => {
         controlChannel.clear();
         result = receiverCompletion.handleTransferDone(fileId, totalChunks);
         expect(result).toBe(false);
-        
+
         messages = controlChannel.getSentMessages();
         expect(messages.length).toBe(1);
         expect(JSON.parse(messages[0]).data.round).toBe(2);
@@ -279,9 +297,9 @@ describe('TransferCompletion', () => {
         expect(result).toBe(false);
 
         // No more messages should be sent after max rounds
-        const nackMessages = controlChannel.getSentMessages().filter(m => 
-          JSON.parse(m).type === 'CHUNK_REQUEST_NACK'
-        );
+        const nackMessages = controlChannel
+          .getSentMessages()
+          .filter((m) => JSON.parse(m).type === 'CHUNK_REQUEST_NACK');
         expect(nackMessages.length).toBe(3); // Only 3 NACKs sent
       });
     });
@@ -304,7 +322,7 @@ describe('TransferCompletion', () => {
         controlChannel.clear();
         const result = receiverCompletion.handleTransferDone(fileId, totalChunks);
         expect(result).toBe(false);
-        
+
         const messages = controlChannel.getSentMessages();
         expect(JSON.parse(messages[0]).data.round).toBe(0);
       });

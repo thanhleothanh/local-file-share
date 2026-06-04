@@ -216,8 +216,11 @@ describe('FileReceiver', () => {
       // Verify ACK was sent for each chunk
       expect(sentAcks.length).toBeGreaterThan(0);
       // Verify all indices are accounted for
-      const receivedIndices = sentAcks.map(a => a.index);
-      const expectedIndices = Array.from({ length: Math.ceil(originalData.byteLength / chunkSize) }, (_, i) => i);
+      const receivedIndices = sentAcks.map((a) => a.index);
+      const expectedIndices = Array.from(
+        { length: Math.ceil(originalData.byteLength / chunkSize) },
+        (_, i) => i,
+      );
       expect(receivedIndices.sort((a, b) => a - b)).toEqual(expectedIndices);
     });
 
@@ -282,7 +285,7 @@ describe('FileReceiver', () => {
 
       expect(sentAcks.length).toBe(100);
       // Verify all indices from 0 to 99 are present
-      const receivedIndices = sentAcks.map(a => a.index).sort((a, b) => a - b);
+      const receivedIndices = sentAcks.map((a) => a.index).sort((a, b) => a - b);
       expect(receivedIndices).toEqual(Array.from({ length: 100 }, (_, i) => i));
     });
   });
@@ -320,7 +323,8 @@ describe('FileReceiver', () => {
     });
 
     it('sends CHUNK_REQUEST_NACK when chunks are missing after TRANSFER_DONE', async () => {
-      const sentMessages: Array<{ type: string; fileId: string; missingIndices: number[]; round: number }> = [];
+      const sentMessages: Array<{ type: string; fileId: string; missingIndices: number[]; round: number }> =
+        [];
       const receiver = new FileReceiver({
         sendChunkNack: (fileId, missingIndices, round) => {
           sentMessages.push({ type: 'CHUNK_REQUEST_NACK', fileId, missingIndices, round });
@@ -456,7 +460,7 @@ describe('FileReceiver', () => {
 
       // Get the integrity checker
       const checker = receiver.getIntegrityChecker();
-      
+
       // Check integrity
       const result = checker.check(fileId, chunkCount);
       expect(result.complete).toBe(true);

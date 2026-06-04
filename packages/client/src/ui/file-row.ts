@@ -166,7 +166,7 @@ export class FileRow extends LitElement {
   direction: FileDirection = 'received';
 
   @property({ type: Boolean })
-  hasTransferring: boolean = false;
+  hasTransferring = false;
 
   @property({ type: Number })
   progress: number | null = null; // 0-100
@@ -201,7 +201,7 @@ export class FileRow extends LitElement {
         detail: { fileId: this.entry.fileId },
         bubbles: true,
         composed: true,
-      })
+      }),
     );
   }
 
@@ -212,7 +212,7 @@ export class FileRow extends LitElement {
         detail: { fileId: this.entry.fileId },
         bubbles: true,
         composed: true,
-      })
+      }),
     );
   }
 
@@ -223,7 +223,7 @@ export class FileRow extends LitElement {
         detail: { fileId: this.entry.fileId },
         bubbles: true,
         composed: true,
-      })
+      }),
     );
   }
 
@@ -234,7 +234,7 @@ export class FileRow extends LitElement {
         detail: { fileId: this.entry.fileId },
         bubbles: true,
         composed: true,
-      })
+      }),
     );
   }
 

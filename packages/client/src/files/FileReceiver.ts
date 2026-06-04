@@ -1,5 +1,9 @@
-import type { DecodedChunk, ChunkBuffer, FileIntegrityChecker } from '@lfs/shared';
-import { decodeChunk, createChunkBuffer, FileIntegrityChecker as SharedFileIntegrityChecker } from '@lfs/shared';
+import type { ChunkBuffer, DecodedChunk, FileIntegrityChecker } from '@lfs/shared';
+import {
+  FileIntegrityChecker as SharedFileIntegrityChecker,
+  createChunkBuffer,
+  decodeChunk,
+} from '@lfs/shared';
 import type { FileSystemWriter } from './FileSystemWriter.js';
 
 export interface FileReceiverEvents {
@@ -51,7 +55,9 @@ export class FileReceiver {
   private readonly onChunkCallback: ((chunk: DecodedChunk) => void) | undefined;
   private readonly writer: FileSystemWriter | undefined;
   private readonly sendChunkAck: ((fileId: string, index: number) => void) | undefined;
-  private readonly sendChunkNack: ((fileId: string, missingIndices: number[], round: number) => void) | undefined;
+  private readonly sendChunkNack:
+    | ((fileId: string, missingIndices: number[], round: number) => void)
+    | undefined;
   private readonly sendFileReceived: ((fileId: string, totalChunks: number) => void) | undefined;
   private readonly buffer: ChunkBuffer;
   private readonly integrityChecker: FileIntegrityChecker;
@@ -230,7 +236,7 @@ export class FileReceiver {
       if (this.sendFileReceived) {
         this.sendFileReceived(fileId, totalChunks);
       }
-      
+
       // Finalize the writer if available
       if (this.writer) {
         try {
@@ -239,32 +245,31 @@ export class FileReceiver {
           console.error('[FileReceiver] Failed to finalize writer:', error);
         }
       }
-      
+
       // Assemble and emit the file
       await this.finalizeAssemble(fileId);
-      
+
       // Clean up tracking
       this.pendingTransfers.delete(fileId);
-      
+
       return true;
-    } else {
-      // Missing chunks detected - send CHUNK_REQUEST_NACK
-      console.info('[FileReceiver] Missing chunks detected, sending CHUNK_REQUEST_NACK', {
-        fileId,
-        totalChunks,
-        missingIndices: result.missingIndices,
-        round: currentRound,
-      });
-      
-      if (this.sendChunkNack) {
-        this.sendChunkNack(fileId, result.missingIndices, currentRound);
-      }
-      
-      // Increment round counter
-      this.pendingTransfers.set(fileId, currentRound + 1);
-      
-      return false;
     }
+    // Missing chunks detected - send CHUNK_REQUEST_NACK
+    console.info('[FileReceiver] Missing chunks detected, sending CHUNK_REQUEST_NACK', {
+      fileId,
+      totalChunks,
+      missingIndices: result.missingIndices,
+      round: currentRound,
+    });
+
+    if (this.sendChunkNack) {
+      this.sendChunkNack(fileId, result.missingIndices, currentRound);
+    }
+
+    // Increment round counter
+    this.pendingTransfers.set(fileId, currentRound + 1);
+
+    return false;
   }
 
   /**
@@ -276,7 +281,7 @@ export class FileReceiver {
   private async tryAssemble(fileId: string): Promise<void> {
     const fileName = this.chunkFileNames.get(fileId) ?? fileId;
     const fileChunks = this.buffer.getChunkCount(fileId);
-    
+
     if (fileChunks === 0) {
       console.warn('[FileReceiver] Cannot assemble file with no chunks', { fileId });
       return;
@@ -296,7 +301,7 @@ export class FileReceiver {
   private async finalizeAssemble(fileId: string): Promise<void> {
     const fileName = this.chunkFileNames.get(fileId) ?? fileId;
     const fileChunks = this.buffer.getChunkCount(fileId);
-    
+
     if (fileChunks === 0) {
       console.warn('[FileReceiver] Cannot assemble file with no chunks', { fileId });
       return;

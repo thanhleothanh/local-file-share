@@ -1,7 +1,7 @@
 import { LitElement, css, html } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ConnectionViewModel } from './ConnectionViewModel.js';
 import type { FileEntry } from '../files/FileStateMachine.js';
+import type { ConnectionViewModel } from './ConnectionViewModel.js';
 import './file-row.js';
 
 @customElement('files-tab')
@@ -100,22 +100,22 @@ export class FilesTab extends LitElement {
   viewModel: ConnectionViewModel | null = null;
 
   @property({ type: Boolean })
-  connected: boolean = false;
+  connected = false;
 
   @state()
   private files: FileEntry[] = [];
 
   @state()
-  private hasTransferring: boolean = false;
+  private hasTransferring = false;
 
   private getProgressForFile(fileId: string): number | null {
     if (!this.viewModel) return null;
-    
+
     const progressMap = this.viewModel.getFileProgressMap();
     const progress = progressMap.get(fileId);
-    
+
     if (!progress) return null;
-    
+
     // Calculate percentage
     if (progress.totalBytes > 0) {
       return Math.round((progress.bytesTransferred / progress.totalBytes) * 100);
@@ -240,9 +240,10 @@ export class FilesTab extends LitElement {
                 <div class="empty" data-testid="empty-state">
                   <div class="empty-icon">📁</div>
                   <div>
-                    ${this.connected
-                      ? 'Tap + to send your first file'
-                      : 'Connect a device to start sharing files'
+                    ${
+                      this.connected
+                        ? 'Tap + to send your first file'
+                        : 'Connect a device to start sharing files'
                     }
                   </div>
                 </div>

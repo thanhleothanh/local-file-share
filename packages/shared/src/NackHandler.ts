@@ -49,7 +49,10 @@ export class NackHandler {
 
     // Check if we've exceeded the maximum NACK rounds
     if (round >= MAX_NACK_ROUNDS) {
-      console.warn('[NackHandler] Maximum NACK rounds exceeded, file should be marked FAILED', { fileId, round });
+      console.warn('[NackHandler] Maximum NACK rounds exceeded, file should be marked FAILED', {
+        fileId,
+        round,
+      });
       return retransmitted;
     }
 

@@ -1,5 +1,5 @@
 import type { ChunkCache } from '@lfs/shared';
-import { CHUNK_SIZE, createChunkCache, generateUuid, ACK_TIMEOUT_MS } from '@lfs/shared';
+import { ACK_TIMEOUT_MS, CHUNK_SIZE, createChunkCache, generateUuid } from '@lfs/shared';
 import { encodeChunk } from '@lfs/shared';
 
 export interface FileSenderOptions {
@@ -36,12 +36,18 @@ export class FileSendTimeoutError extends Error {
 
 export class FileSender {
   private readonly sendChunk: (chunk: ArrayBuffer) => Promise<void>;
-  private readonly listeners: Map<string, Array<(fileId: string, bytesSent: number, totalBytes: number) => void>> = new Map();
+  private readonly listeners: Map<
+    string,
+    Array<(fileId: string, bytesSent: number, totalBytes: number) => void>
+  > = new Map();
   private readonly completeListeners: Array<(fileId: string) => void> = [];
   private readonly failedListeners: Array<(fileId: string, error: Error) => void> = [];
   private readonly cache: ChunkCache;
   private readonly ackTimeoutMs: number;
-  private readonly pendingTransfers: Map<string, { timer: ReturnType<typeof setTimeout>; reject: (error: Error) => void }> = new Map();
+  private readonly pendingTransfers: Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; reject: (error: Error) => void }
+  > = new Map();
 
   constructor(options: FileSenderOptions) {
     this.sendChunk = options.sendChunk;
@@ -49,22 +55,10 @@ export class FileSender {
     this.ackTimeoutMs = options.ackTimeoutMs ?? ACK_TIMEOUT_MS;
   }
 
-  on(
-    event: 'progress',
-    handler: (fileId: string, bytesSent: number, totalBytes: number) => void,
-  ): () => void;
-  on(
-    event: 'complete',
-    handler: (fileId: string) => void,
-  ): () => void;
-  on(
-    event: 'failed',
-    handler: (fileId: string, error: Error) => void,
-  ): () => void;
-  on(
-    event: string,
-    handler: (...args: unknown[]) => void,
-  ): () => void {
+  on(event: 'progress', handler: (fileId: string, bytesSent: number, totalBytes: number) => void): () => void;
+  on(event: 'complete', handler: (fileId: string) => void): () => void;
+  on(event: 'failed', handler: (fileId: string, error: Error) => void): () => void;
+  on(event: string, handler: (...args: unknown[]) => void): () => void {
     const handlers = this.listeners.get(event) ?? [];
     handlers.push(handler as never);
     this.listeners.set(event, handlers);
@@ -150,7 +144,7 @@ export class FileSender {
    * @param waitForAck - If true, waits for FILE_RECEIVED or timeout after sending all chunks
    * @returns Promise that resolves when the file is sent and acknowledged (if waitForAck is true)
    */
-  async sendFile(file: File, fileId: string = generateUuid(), waitForAck: boolean = false): Promise<void> {
+  async sendFile(file: File, fileId: string = generateUuid(), waitForAck = false): Promise<void> {
     const totalBytes = file.size;
     let bytesSent = 0;
 
@@ -203,7 +197,10 @@ export class FileSender {
       const timer = setTimeout(() => {
         this.pendingTransfers.delete(fileId);
         this.cache.deleteFile(fileId);
-        this.emitFailed(fileId, new FileSendTimeoutError(`Timeout waiting for FILE_RECEIVED for file ${fileId}`));
+        this.emitFailed(
+          fileId,
+          new FileSendTimeoutError(`Timeout waiting for FILE_RECEIVED for file ${fileId}`),
+        );
         reject(new FileSendTimeoutError(`Timeout waiting for FILE_RECEIVED for file ${fileId}`));
       }, timeoutMs);
 

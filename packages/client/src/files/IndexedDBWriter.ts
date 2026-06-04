@@ -3,8 +3,8 @@
  * Buffers chunks in IndexedDB during transfer and triggers download on completion.
  */
 
-import type { FileSystemWriter, FileMetadata } from './FileSystemWriter.js';
 import { FileSystemAccessWriter } from './FileSystemAccessWriter.js';
+import type { FileMetadata, FileSystemWriter } from './FileSystemWriter.js';
 
 const DATABASE_PREFIX = 'LocalFileShare';
 const FILES_STORE = 'files';
@@ -274,7 +274,7 @@ export class IndexedDBWriter implements FileSystemWriter {
         if (cursor) {
           const key = cursor.key as string;
           if (key.startsWith(`${fileId}__`)) {
-            const index = parseInt(key.substring(fileId.length + 2), 10);
+            const index = Number.parseInt(key.substring(fileId.length + 2), 10);
             // cursor.value is { key, data } object
             const value = cursor.value as { key: string; data: ArrayBuffer };
             chunks.set(index, value.data);
@@ -344,10 +344,10 @@ export class BrowserDownloadLauncher implements DownloadLauncher {
    */
   async assembleAndSave(fileId: string, fileName: string, writer: IndexedDBWriter): Promise<void> {
     console.info('[DownloadLauncher] assembleAndSave called', { fileId, fileName });
-    
+
     // Assemble the file in batches
     const blob = await this.assembleFile(fileId, writer, 100);
-    
+
     // Trigger the download
     this.saveBlob(blob, fileName);
   }
@@ -355,7 +355,7 @@ export class BrowserDownloadLauncher implements DownloadLauncher {
   /**
    * Assemble chunks into a Blob by reading in batches.
    */
-  async assembleFile(fileId: string, writer: IndexedDBWriter, batchSize: number = 100): Promise<Blob> {
+  async assembleFile(fileId: string, writer: IndexedDBWriter, batchSize = 100): Promise<Blob> {
     const chunks = await writer.getFileChunks(fileId);
     const sortedIndices = Array.from(chunks.keys()).sort((a, b) => a - b);
 
@@ -363,7 +363,7 @@ export class BrowserDownloadLauncher implements DownloadLauncher {
 
     for (let i = 0; i < sortedIndices.length; i += batchSize) {
       const batchIndices = sortedIndices.slice(i, i + batchSize);
-      
+
       for (const index of batchIndices) {
         const chunk = chunks.get(index);
         if (chunk) {
@@ -405,8 +405,8 @@ export class StorageBackendFactory {
   private static instance: StorageBackendFactory | null = null;
   private backend: 'fsa' | 'indexeddb' | null = null;
   private writer: FileSystemWriter | null = null;
-  private connectionId: string = '';
-  private initialized: boolean = false;
+  private connectionId = '';
+  private initialized = false;
 
   private constructor() {}
 
@@ -437,11 +437,11 @@ export class StorageBackendFactory {
   static detect(): 'fsa' | 'indexeddb' {
     if ('showDirectoryPicker' in window) {
       return 'fsa';
-    } else if ('indexedDB' in window) {
-      return 'indexeddb';
-    } else {
-      throw new Error('No storage backend available');
     }
+    if ('indexedDB' in window) {
+      return 'indexeddb';
+    }
+    throw new Error('No storage backend available');
   }
 
   /**

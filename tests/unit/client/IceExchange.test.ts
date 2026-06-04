@@ -111,9 +111,7 @@ describe('IceExchange', () => {
   });
 
   it('clear removes buffered candidates and resets flag', () => {
-    (iceExchange as any).candidateBuffer = [
-      { candidate: 'candidate-1', sdpMid: null, sdpMLineIndex: null },
-    ];
+    (iceExchange as any).candidateBuffer = [{ candidate: 'candidate-1', sdpMid: null, sdpMLineIndex: null }];
     (iceExchange as any).remoteDescriptionSet = true;
 
     iceExchange.clear();

@@ -18,72 +18,65 @@ export interface WrappedDataChannel extends RTCDataChannel {
 }
 
 /**
- * SCTPBackpressure provides backpressure-aware send for data channels.
+ * Wrap an RTCDataChannel with SCTP backpressure.
+ * Returns the same channel object with a replaced `send` method that
+ * returns a Promise<void> which resolves when the buffer drains.
+ *
+ * The wrapping is done in-place on the channel object.
+ * The control channel should NOT be wrapped (its messages are tiny).
  */
-export class SCTPBackpressure {
-  /**
-   * Wrap an RTCDataChannel with SCTP backpressure.
-   * Returns the same channel object with a replaced `send` method that
-   * returns a Promise<void> which resolves when the buffer drains.
-   *
-   * The wrapping is done in-place on the channel object.
-   * The control channel should NOT be wrapped (its messages are tiny).
-   */
-  static wrap(channel: RTCDataChannel): WrappedDataChannel {
-    // Store original send before we replace it
-    const originalSend = channel.send.bind(channel);
-    const pending: Array<{ resolve: () => void; timeout: NodeJS.Timeout }> = [];
+function wrap(channel: RTCDataChannel): WrappedDataChannel {
+  // Store original send before we replace it
+  const originalSend = channel.send.bind(channel);
+  const pending: Array<{ resolve: () => void; timeout: NodeJS.Timeout }> = [];
 
-    const resolvePending = () => {
-      const bufferedAmount = channel.bufferedAmount;
-      while (pending.length > 0 && bufferedAmount <= THRESHOLD) {
-        const { resolve, timeout } = pending.shift()!;
-        clearTimeout(timeout);
-        resolve();
+  const resolvePending = () => {
+    const bufferedAmount = channel.bufferedAmount;
+    while (pending.length > 0 && bufferedAmount <= THRESHOLD) {
+      const item = pending.shift();
+      if (item) {
+        clearTimeout(item.timeout);
+        item.resolve();
       }
-    };
+    }
+  };
 
-    // Listen for bufferedamountlow events
-    channel.addEventListener('bufferedamountlow', resolvePending);
+  // Listen for bufferedamountlow events
+  channel.addEventListener('bufferedamountlow', resolvePending);
 
-    // Replace the send method with a Promise-returning version
-    const asyncSend: AsyncSend = (data: string | ArrayBuffer | Blob) => {
-      const bufferedAmount = channel.bufferedAmount;
+  // Replace the send method with a Promise-returning version
+  const asyncSend: AsyncSend = (data: string | ArrayBuffer | Blob) => {
+    const bufferedAmount = channel.bufferedAmount;
 
-      // If buffer is already drained, send immediately
-      if (bufferedAmount <= THRESHOLD) {
-        originalSend(data);
-        return Promise.resolve();
-      }
+    // If buffer is already drained, send immediately
+    if (bufferedAmount <= THRESHOLD) {
+      originalSend(data);
+      return Promise.resolve();
+    }
 
-      // Otherwise, wait for buffer to drain
-      return new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          const index = pending.findIndex((p) => p.resolve === resolve);
-          if (index !== -1) {
-            pending.splice(index, 1);
-            console.warn('[SCTPBackpressure] Safety timeout expired, proceeding without drain');
-            resolve();
-          }
-        }, SAFETY_TIMEOUT_MS);
+    // Otherwise, wait for buffer to drain
+    return new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        const index = pending.findIndex((p) => p.resolve === resolve);
+        if (index !== -1) {
+          pending.splice(index, 1);
+          console.warn('[SCTPBackpressure] Safety timeout expired, proceeding without drain');
+          resolve();
+        }
+      }, SAFETY_TIMEOUT_MS);
 
-        pending.push({ resolve, timeout });
-        originalSend(data);
-      });
-    };
+      pending.push({ resolve, timeout });
+      originalSend(data);
+    });
+  };
 
-    channel.send = asyncSend;
+  channel.send = asyncSend;
 
-    return channel as WrappedDataChannel;
-  }
-
-  /**
-   * The buffer threshold in bytes (1 MiB).
-   */
-  static readonly THRESHOLD = THRESHOLD;
-
-  /**
-   * The safety timeout in milliseconds (60 seconds).
-   */
-  static readonly SAFETY_TIMEOUT_MS = SAFETY_TIMEOUT_MS;
+  return channel as WrappedDataChannel;
 }
+
+export const SCTPBackpressure = {
+  wrap,
+  THRESHOLD,
+  SAFETY_TIMEOUT_MS,
+};

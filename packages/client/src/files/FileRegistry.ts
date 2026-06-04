@@ -3,7 +3,7 @@
  * Files are stored with their metadata and state, sorted by creation time.
  */
 
-import type { FileEntry, FileState, FileEvent } from './FileStateMachine.js';
+import type { FileEntry, FileEvent, FileState } from './FileStateMachine.js';
 import { FileStateMachine } from './FileStateMachine.js';
 
 /**
@@ -88,9 +88,7 @@ export class FileRegistry {
    * Get all non-terminal state files.
    */
   getActiveFiles(): FileEntry[] {
-    return this.getAll().filter(
-      (entry) => !FileStateMachine.isTerminal(entry.state as FileState)
-    );
+    return this.getAll().filter((entry) => !FileStateMachine.isTerminal(entry.state as FileState));
   }
 
   /**

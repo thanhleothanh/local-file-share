@@ -3,7 +3,11 @@
  * These tests use vi.stubGlobal to mock browser APIs.
  */
 
-import { IndexedDBWriter, BrowserDownloadLauncher, StorageBackendFactory } from '../../../packages/client/src/files/IndexedDBWriter.js';
+import {
+  IndexedDBWriter,
+  BrowserDownloadLauncher,
+  StorageBackendFactory,
+} from '../../../packages/client/src/files/IndexedDBWriter.js';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 
@@ -67,10 +71,10 @@ describe('IndexedDBWriter', () => {
       // Reset singleton to clear previous state
       // @ts-expect-error - accessing private field
       StorageBackendFactory.instance = null;
-      
+
       const factory1 = StorageBackendFactory.getInstance();
       const factory2 = StorageBackendFactory.getInstance();
-      
+
       expect(factory1).toBe(factory2);
     });
 
@@ -82,7 +86,7 @@ describe('IndexedDBWriter', () => {
 
       const factory = StorageBackendFactory.getInstance();
       factory.initialize('conn-1');
-      
+
       expect(factory.kind()).toBe('fsa');
       expect(factory.detect()).toBe('fsa');
     });
@@ -95,10 +99,10 @@ describe('IndexedDBWriter', () => {
       // Reset singleton to clear previous state
       // @ts-expect-error - accessing private field
       StorageBackendFactory.instance = null;
-      
+
       const factory = StorageBackendFactory.getInstance();
       factory.initialize('conn-1');
-      
+
       expect(factory.kind()).toBe('indexeddb');
       expect(factory.detect()).toBe('indexeddb');
     });
@@ -109,10 +113,10 @@ describe('IndexedDBWriter', () => {
       // Reset singleton to clear previous state
       // @ts-expect-error - accessing private field
       StorageBackendFactory.instance = null;
-      
+
       const factory = StorageBackendFactory.getInstance();
       factory.initialize('conn-1');
-      
+
       expect(() => factory.kind()).toThrow('No storage backend available');
     });
 
@@ -125,10 +129,10 @@ describe('IndexedDBWriter', () => {
       // Reset singleton to clear previous state
       // @ts-expect-error - accessing private field
       StorageBackendFactory.instance = null;
-      
+
       const factory = StorageBackendFactory.getInstance();
       factory.initialize('conn-1');
-      
+
       // Call detect multiple times
       expect(factory.detect()).toBe('fsa');
       expect(factory.detect()).toBe('fsa');
@@ -144,14 +148,14 @@ describe('IndexedDBWriter', () => {
       // Reset singleton to clear previous state
       // @ts-expect-error - accessing private field
       StorageBackendFactory.instance = null;
-      
+
       const factory = StorageBackendFactory.getInstance();
       factory.initialize('conn-1');
-      
+
       expect(factory.kind()).toBe('fsa');
-      
+
       factory.reset();
-      
+
       // After reset, we should be able to get a new instance
       // @ts-expect-error - accessing private field
       StorageBackendFactory.instance = null;
@@ -171,10 +175,10 @@ describe('IndexedDBWriter', () => {
       // Reset singleton to clear previous state
       // @ts-expect-error - accessing private field
       StorageBackendFactory.instance = null;
-      
+
       const factory = StorageBackendFactory.getInstance();
       factory.initialize('test-connection');
-      
+
       expect(factory.isInitialized()).toBe(true);
       expect(factory.kind()).toBe('fsa');
     });
@@ -193,12 +197,12 @@ describe('IndexedDBWriter', () => {
         style: { display: '' },
         click: vi.fn(),
       };
-      
+
       const mockBody = {
         appendChild: vi.fn(),
         removeChild: vi.fn(),
       };
-      
+
       vi.stubGlobal('window', {} as unknown as Window & typeof globalThis);
       vi.stubGlobal('document', {
         createElement: vi.fn(() => mockAnchor),
@@ -304,11 +308,12 @@ describe('IndexedDBWriter', () => {
 
       it('startFile throws when IndexedDB is not available', async () => {
         vi.stubGlobal('window', {} as unknown as Window & typeof globalThis);
-        
+
         const writer = new IndexedDBWriter('test-conn');
-        
-        await expect(writer.startFile({ fileId: 'file-1', fileName: 'test.txt', fileSize: 100, mimeType: 'text/plain' }))
-          .rejects.toThrow('IndexedDB is not available');
+
+        await expect(
+          writer.startFile({ fileId: 'file-1', fileName: 'test.txt', fileSize: 100, mimeType: 'text/plain' }),
+        ).rejects.toThrow('IndexedDB is not available');
       });
 
       it('writeChunk calls put on the chunks store', async () => {
@@ -327,14 +332,14 @@ describe('IndexedDBWriter', () => {
 
         const writer = new IndexedDBWriter('test-conn');
         const data = new ArrayBuffer(8);
-        
+
         // Mock the transaction and store behavior
         const mockPutRequest = {
           onsuccess: vi.fn(),
           onerror: vi.fn(),
         };
         mockStore.put = vi.fn().mockReturnValue(mockPutRequest);
-        
+
         // We can't fully test this without proper mocking, but we can verify the structure
         // For now, just test that the method exists and can be called
         expect(writer.writeChunk).toBeDefined();
@@ -343,7 +348,7 @@ describe('IndexedDBWriter', () => {
 
       it('cancel calls delete on chunks and files stores', () => {
         const writer = new IndexedDBWriter('test-conn');
-        
+
         // Verify the method exists
         expect(writer.cancel).toBeDefined();
         expect(typeof writer.cancel).toBe('function');
@@ -351,7 +356,7 @@ describe('IndexedDBWriter', () => {
 
       it('getFileChunks returns a Map', async () => {
         const writer = new IndexedDBWriter('test-conn');
-        
+
         // Mock cursor behavior for getFileChunks
         const mockCursor = {
           key: 'file-1__0',
@@ -377,7 +382,7 @@ describe('IndexedDBWriter', () => {
   describe('BrowserDownloadLauncher assembleAndSave', () => {
     it('assembleAndSave calls assembleFile and saveBlob', async () => {
       const launcher = new BrowserDownloadLauncher();
-      
+
       // Mock the methods
       const mockBlob = new Blob(['test content'], { type: 'text/plain' });
       const mockWriter = {
@@ -387,7 +392,7 @@ describe('IndexedDBWriter', () => {
 
       // Mock saveBlob
       launcher.saveBlob = vi.fn();
-      
+
       // Mock assembleFile to return a blob
       launcher.assembleFile = vi.fn().mockResolvedValue(mockBlob);
 
@@ -399,7 +404,7 @@ describe('IndexedDBWriter', () => {
 
     it('assembleFile creates correct Blob from chunks', async () => {
       const launcher = new BrowserDownloadLauncher();
-      
+
       // Create mock chunks
       const chunk1 = new TextEncoder().encode('hello').buffer;
       const chunk2 = new TextEncoder().encode('world').buffer;
@@ -421,7 +426,7 @@ describe('IndexedDBWriter', () => {
 
     it('assembleFile handles batches correctly with 250 chunks', async () => {
       const launcher = new BrowserDownloadLauncher();
-      
+
       // Create 250 chunks of 1 byte each
       const chunks = new Map<number, ArrayBuffer>();
       for (let i = 0; i < 250; i++) {
@@ -545,7 +550,7 @@ describe('IndexedDBWriter', () => {
 
       // Read chunks back
       const chunks = await writer.getFileChunks(fileId);
-      
+
       expect(chunks).toBeDefined();
       expect(chunks!.size).toBe(2);
       expect(chunks!.get(0)).toEqual(chunk1);
@@ -581,8 +586,18 @@ describe('IndexedDBWriter', () => {
       const file2Id = 'file-b';
 
       // Start both files
-      await writer.startFile({ fileId: file1Id, fileName: 'file1.txt', fileSize: 100, mimeType: 'text/plain' });
-      await writer.startFile({ fileId: file2Id, fileName: 'file2.txt', fileSize: 100, mimeType: 'text/plain' });
+      await writer.startFile({
+        fileId: file1Id,
+        fileName: 'file1.txt',
+        fileSize: 100,
+        mimeType: 'text/plain',
+      });
+      await writer.startFile({
+        fileId: file2Id,
+        fileName: 'file2.txt',
+        fileSize: 100,
+        mimeType: 'text/plain',
+      });
 
       // Write to both files with different content
       const chunk1 = new TextEncoder().encode('file1-chunk').buffer;
@@ -624,10 +639,20 @@ describe('IndexedDBWriter', () => {
       const fileId2 = 'file-y';
 
       // Start and write to both files
-      await writer.startFile({ fileId: fileId1, fileName: 'filex.txt', fileSize: 100, mimeType: 'text/plain' });
+      await writer.startFile({
+        fileId: fileId1,
+        fileName: 'filex.txt',
+        fileSize: 100,
+        mimeType: 'text/plain',
+      });
       await writer.writeChunk(fileId1, 0, new ArrayBuffer(8));
-      
-      await writer.startFile({ fileId: fileId2, fileName: 'filey.txt', fileSize: 100, mimeType: 'text/plain' });
+
+      await writer.startFile({
+        fileId: fileId2,
+        fileName: 'filey.txt',
+        fileSize: 100,
+        mimeType: 'text/plain',
+      });
       await writer.writeChunk(fileId2, 0, new ArrayBuffer(8));
 
       // Clear all
@@ -654,11 +679,11 @@ describe('IndexedDBWriter', () => {
       const writerWithLauncher = new IndexedDBWriter('test-conn', launcher);
 
       const fileId = 'file-with-launcher';
-      await writerWithLauncher.startFile({ 
-        fileId, 
-        fileName: 'test.txt', 
-        fileSize: 100, 
-        mimeType: 'text/plain' 
+      await writerWithLauncher.startFile({
+        fileId,
+        fileName: 'test.txt',
+        fileSize: 100,
+        mimeType: 'text/plain',
       });
 
       // Write a chunk

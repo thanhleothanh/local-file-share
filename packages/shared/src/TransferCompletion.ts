@@ -28,7 +28,11 @@ export interface ControlChannelSender {
  * Interface for handling NACK messages (sender side).
  */
 export interface NackHandlerInterface {
-  handle(message: { type: string; from: string; data: { fileId: string; missingIndices: number[]; round: number } }): Promise<number[]>;
+  handle(message: {
+    type: string;
+    from: string;
+    data: { fileId: string; missingIndices: number[]; round: number };
+  }): Promise<number[]>;
 }
 
 /**
@@ -39,7 +43,10 @@ export class SenderTransferCompletion {
   private readonly controlChannel: ControlChannelSender;
   private readonly nackHandler: NackHandlerInterface;
   private readonly localDeviceId: string;
-  private readonly pending: Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }> = new Map();
+  private readonly pending: Map<
+    string,
+    { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
+  > = new Map();
 
   constructor(
     controlChannel: ControlChannelSender,
@@ -113,9 +120,11 @@ export class SenderTransferCompletion {
    *
    * @param message - The CHUNK_REQUEST_NACK message
    */
-  async handleChunkRequestNack(
-    message: { type: string; from: string; data: { fileId: string; missingIndices: number[]; round: number } },
-  ): Promise<void> {
+  async handleChunkRequestNack(message: {
+    type: string;
+    from: string;
+    data: { fileId: string; missingIndices: number[]; round: number };
+  }): Promise<void> {
     const { fileId } = message.data;
     const pending = this.pending.get(fileId);
 
@@ -192,7 +201,10 @@ export class ReceiverTransferCompletion {
 
     // Check if we've exceeded the maximum NACK rounds
     if (currentRound >= MAX_NACK_ROUNDS) {
-      console.warn('[ReceiverTransferCompletion] Maximum NACK rounds exceeded, file should be marked FAILED', { fileId, round: currentRound });
+      console.warn(
+        '[ReceiverTransferCompletion] Maximum NACK rounds exceeded, file should be marked FAILED',
+        { fileId, round: currentRound },
+      );
       return false;
     }
 

@@ -3,7 +3,11 @@
  * Tests the exhaustive transition table.
  */
 
-import { FileStateMachine, type FileState, type FileEvent } from '../../../packages/client/src/files/FileStateMachine.js';
+import {
+  FileStateMachine,
+  type FileState,
+  type FileEvent,
+} from '../../../packages/client/src/files/FileStateMachine.js';
 import { describe, expect, it } from 'vitest';
 
 describe('FileStateMachine', () => {

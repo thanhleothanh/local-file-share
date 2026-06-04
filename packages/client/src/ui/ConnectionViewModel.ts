@@ -5,15 +5,38 @@ import { FileStateMachine } from '../files/FileStateMachine.js';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
 import { SCTPBackpressure } from '../webrtc/SCTPBackpressure.js';
-import { FileSender, FileReceiver, FileSystemAccessWriter, FileRegistry, FileQueue, type FileEntry, StorageBackendFactory } from '../files/index.js';
-import { NackHandler, createChunkCache, CHUNK_SIZE, type ChunkCache, decodeChunk, FSA_QUEUE_FILE_COUNT_CAP, IDB_QUEUE_SIZE_CAP_BYTES } from '@lfs/shared';
+import {
+  FileSender,
+  FileReceiver,
+  FileSystemAccessWriter,
+  FileRegistry,
+  FileQueue,
+  type FileEntry,
+  StorageBackendFactory,
+} from '../files/index.js';
+import {
+  NackHandler,
+  createChunkCache,
+  CHUNK_SIZE,
+  type ChunkCache,
+  decodeChunk,
+  FSA_QUEUE_FILE_COUNT_CAP,
+  IDB_QUEUE_SIZE_CAP_BYTES,
+} from '@lfs/shared';
 import type { ChunkRequestNackMessage, TransferDoneMessage, DecodedChunk } from '@lfs/shared';
 import { generateUuid } from '@lfs/shared';
 import { IdleTimer } from './IdleTimer.js';
 import { IndexedDBWriter } from '../files/IndexedDBWriter.js';
 
 // Type for RTCIceConnectionState (defined in browser, but we need it for type safety)
-export type RTCIceConnectionState = 'new' | 'checking' | 'connected' | 'completed' | 'failed' | 'disconnected' | 'closed';
+export type RTCIceConnectionState =
+  | 'new'
+  | 'checking'
+  | 'connected'
+  | 'completed'
+  | 'failed'
+  | 'disconnected'
+  | 'closed';
 
 export interface ConnectionViewModelState {
   devices: readonly DeviceDescriptor[];
@@ -67,7 +90,8 @@ export class ConnectionViewModel {
   // Track which files we sent (to determine direction)
   private sentFileIds: Set<string> = new Set();
   // Track progress for each file (fileId -> { bytesTransferred, totalBytes })
-  private fileProgressMap: Map<string, { bytesTransferred: number; totalBytes: number; isSender: boolean }> = new Map();
+  private fileProgressMap: Map<string, { bytesTransferred: number; totalBytes: number; isSender: boolean }> =
+    new Map();
   // Flag to track if disconnect confirmation dialog is showing
   private disconnectConfirming: boolean = false;
 
@@ -112,19 +136,19 @@ export class ConnectionViewModel {
     this.unsubscribers.push(
       this.sm.onTransition((detail) => {
         this.update((prev) => ({ ...prev, connectionState: detail.to }));
-        
+
         // Start idle timer when entering CONNECTED state
         if (detail.to === ConnectionState.CONNECTED) {
           this.idleTimer?.start();
           console.info('[IdleTimer] started');
         }
-        
+
         // Stop idle timer when entering IDLE state
         if (detail.to === ConnectionState.IDLE) {
           this.idleTimer?.stop();
           console.info('[IdleTimer] stopped');
         }
-        
+
         // Clear file registry when leaving CONNECTED state
         if (detail.from === ConnectionState.CONNECTED) {
           this.clearConnectionState();
@@ -362,7 +386,7 @@ export class ConnectionViewModel {
    * Disconnect from the current connection.
    * If files are TRANSFERRING or QUEUED, shows a confirmation dialog first.
    * Otherwise, disconnects immediately.
-   * 
+   *
    * @param force - If true, disconnects immediately without confirmation
    * @returns Promise that resolves when disconnect is complete (or rejected if cancelled)
    */
@@ -373,15 +397,15 @@ export class ConnectionViewModel {
 
     // Check if there are files in progress (TRANSFERRING or QUEUED)
     const hasFilesInProgress = this.hasFilesInProgress();
-    
+
     if (hasFilesInProgress && !force) {
       // Show confirmation dialog
       if (this.disconnectConfirming) {
         return false; // Already showing confirmation
       }
-      
+
       this.disconnectConfirming = true;
-      
+
       try {
         const confirmed = await this.showDisconnectConfirmation();
         if (!confirmed) {
@@ -419,7 +443,7 @@ export class ConnectionViewModel {
       }
       return result;
     }
-    
+
     // In a real browser environment, this would show a native confirm dialog
     // For testing, we use a global confirmation handler if available
     if (typeof window !== 'undefined') {
@@ -428,7 +452,7 @@ export class ConnectionViewModel {
           confirmDisconnect?: () => Promise<boolean> | boolean;
         };
       };
-      
+
       if (w.lfs?.confirmDisconnect) {
         const result = w.lfs.confirmDisconnect();
         if (result instanceof Promise) {
@@ -437,7 +461,7 @@ export class ConnectionViewModel {
         return result;
       }
     }
-    
+
     // Default: auto-confirm in non-browser environments
     return true;
   }
@@ -482,15 +506,15 @@ export class ConnectionViewModel {
    */
   private handleIdleTimeout(): void {
     if (this.state.connectionState !== ConnectionState.CONNECTED) return;
-    
+
     console.info('[IdleTimer] timeout reached - transitioning to IDLE');
-    
+
     // Clear connection state (files, queue, IndexedDB, cache)
     this.clearConnectionState();
-    
+
     // Close WebRTC connection
     this.cleanupWebRTC();
-    
+
     try {
       this.sm.dispatch('DISCONNECT');
     } catch {
@@ -515,14 +539,14 @@ export class ConnectionViewModel {
     this.sentFileIds.clear();
     this.fileProgressMap.clear();
     console.info('[FileRegistry] cleared on disconnect');
-    
+
     // Clear chunk cache
     if (this.chunkCache) {
       // Delete all files from the cache
       // Note: We don't have direct access to all file IDs, so we clear by resetting
       this.chunkCache = null;
     }
-    
+
     // Clear IndexedDB writer for this connection
     if (this.idbWriter) {
       void this.idbWriter.clear();
@@ -565,12 +589,12 @@ export class ConnectionViewModel {
    */
   private canAddFiles(files: File[]): { allowed: boolean; reason?: string } {
     const backendKind = StorageBackendFactory.detect();
-    
+
     if (backendKind === 'fsa') {
       // FSA: max 100 files in queue (including existing queued files)
       const currentQueueSize = this.fileQueue.size();
       const totalFiles = currentQueueSize + files.length;
-      
+
       if (totalFiles > FSA_QUEUE_FILE_COUNT_CAP) {
         return {
           allowed: false,
@@ -583,7 +607,7 @@ export class ConnectionViewModel {
       const currentQueueSizeBytes = this.getQueueSizeInBytes();
       const newFilesSize = files.reduce((sum, file) => sum + file.size, 0);
       const totalSize = currentQueueSizeBytes + newFilesSize;
-      
+
       if (totalSize > IDB_QUEUE_SIZE_CAP_BYTES) {
         return {
           allowed: false,
@@ -600,7 +624,7 @@ export class ConnectionViewModel {
   private getQueueSizeInBytes(): number {
     let totalSize = 0;
     const queue = this.fileQueue.getAll();
-    
+
     for (const entry of queue) {
       // Get the actual File object from the store if available
       const file = this.fileStore.get(entry.fileId);
@@ -611,7 +635,7 @@ export class ConnectionViewModel {
         totalSize += entry.fileSize;
       }
     }
-    
+
     return totalSize;
   }
 
@@ -685,7 +709,7 @@ export class ConnectionViewModel {
 
     // Don't immediately send files - wait for FILE_ACCEPT messages
     // Queue advancement will be handled by handleFileAccept and FILE_RECEIVED
-    
+
     // Track sent files for direction tracking
     for (const entry of fileEntries) {
       this.sentFileIds.add(entry.fileId);
@@ -720,7 +744,7 @@ export class ConnectionViewModel {
     fileId: string,
     bytesTransferred: number,
     totalBytes: number,
-    isSender: boolean
+    isSender: boolean,
   ): void {
     this.fileProgressMap.set(fileId, { bytesTransferred, totalBytes, isSender });
   }
@@ -751,7 +775,7 @@ export class ConnectionViewModel {
     try {
       this.controlChannel.send(acceptMessage);
       this.loggerFor('FileReceiver').info('sent FILE_ACCEPT', { fileId });
-      
+
       // Transition the file state
       this.fileRegistry.transition(fileId, 'ACCEPT');
       console.info(`[FileState] ${fileId}: PENDING → QUEUED (ACCEPT)`);
@@ -780,11 +804,11 @@ export class ConnectionViewModel {
     try {
       this.controlChannel.send(rejectMessage);
       this.loggerFor('FileReceiver').info('sent FILE_REJECT', { fileId, reason });
-      
+
       // Transition the file state
       this.fileRegistry.transition(fileId, 'REJECT');
       console.info(`[FileState] ${fileId}: PENDING → REJECTED (REJECT)`);
-      
+
       // Remove from queue
       this.fileQueue.remove(fileId);
     } catch (error) {
@@ -822,11 +846,11 @@ export class ConnectionViewModel {
     try {
       this.controlChannel.send(cancelMessage);
       this.loggerFor('FileSender').info('sent FILE_CANCEL', { fileId });
-      
+
       // Transition the file state
       this.fileRegistry.transition(fileId, 'CANCEL');
       console.info(`[FileState] ${fileId}: ${entry.state} → CANCELLED (CANCEL)`);
-      
+
       // Remove from queue and store
       this.fileQueue.remove(fileId);
       this.fileStore.delete(fileId);
@@ -911,7 +935,11 @@ export class ConnectionViewModel {
    * @param waitForAck - If true, waits for FILE_RECEIVED or timeout (default: true)
    * @returns Promise that resolves when the file transfer completes or rejects on timeout
    */
-  async sendFile(file: File, fileId: string = this.generateFileId(), waitForAck: boolean = true): Promise<void> {
+  async sendFile(
+    file: File,
+    fileId: string = this.generateFileId(),
+    waitForAck: boolean = true,
+  ): Promise<void> {
     if (this.state.connectionState !== ConnectionState.CONNECTED || !this.fileSender) {
       throw new Error('Cannot send file: not connected or file sender not initialized');
     }
@@ -940,7 +968,11 @@ export class ConnectionViewModel {
     try {
       // Send all chunks without waiting for ACK
       await this.fileSender.sendFile(file, actualFileId, false);
-      this.loggerFor('FileSender').info('file chunks sent', { name: file.name, fileId: actualFileId, chunks: chunkCount });
+      this.loggerFor('FileSender').info('file chunks sent', {
+        name: file.name,
+        fileId: actualFileId,
+        chunks: chunkCount,
+      });
 
       // Send TRANSFER_DONE message after all chunks are sent
       this.sendTransferDone(actualFileId, chunkCount);
@@ -1057,7 +1089,7 @@ export class ConnectionViewModel {
         (payload: { channel: 'control' | 'data'; data: string | ArrayBuffer }) => {
           // Reset idle timer on any message
           this.resetIdleTimer();
-          
+
           if (payload.channel === 'data' && typeof payload.data === 'string' && payload.data === 'hello') {
             this.loggerFor('WebRTC').info('received hello message on data channel');
             // Log to console as required by the issue
@@ -1078,13 +1110,13 @@ export class ConnectionViewModel {
       this.webrtc.on('data-channel-open', (channels) => {
         this.loggerFor('WebRTC').info('data channels open - initializing file transfer');
         this.controlChannel = channels.control;
-        
+
         // Initialize IndexedDB writer for this connection if using IndexedDB backend
         if (StorageBackendFactory.detect() === 'indexeddb') {
           this.idbWriter = new IndexedDBWriter(targetDeviceId);
           this.loggerFor('IndexedDB').info('initialized IndexedDB writer for connection', { targetDeviceId });
         }
-        
+
         this.initFileTransfer(channels.data, channels.control);
       }),
     );
@@ -1093,7 +1125,7 @@ export class ConnectionViewModel {
     this.unsubscribers.push(
       this.webrtc.on('ice-connection-state-change', (state: RTCIceConnectionState) => {
         this.loggerFor('WebRTC').info('ICE connection state changed', { state });
-        
+
         // If ICE connection becomes disconnected or failed, treat as server-side disconnect
         if (state === 'disconnected' || state === 'failed') {
           this.loggerFor('WebRTC').warn('ICE connection disconnected/failed - initiating disconnect');
@@ -1157,15 +1189,15 @@ export class ConnectionViewModel {
     this.fileSender.on('progress', (fileId: string, bytesSent: number, totalBytes: number) => {
       this.loggerFor('FileSender').info('progress', { fileId, bytesSent, totalBytes });
       console.info('[FileSender] progress', { fileId, bytesSent, totalBytes });
-      
+
       // Update the progress map for all files
       this.updateFileProgress(fileId, bytesSent, totalBytes, true);
-      
+
       // Also update the single file progress state for backward compatibility
       // (used by file-progress component)
       const entry = this.fileRegistry.get(fileId);
       const fileName = entry?.fileName ?? 'Unknown';
-      
+
       if (this.state.fileProgress?.fileId !== fileId) {
         this.update((prev) => ({
           ...prev,
@@ -1277,15 +1309,15 @@ export class ConnectionViewModel {
     this.fileReceiver.onProgress((fileId: string, bytesReceived: number, totalBytes: number) => {
       this.loggerFor('FileReceiver').info('progress', { fileId, bytesReceived, totalBytes });
       console.info('[FileReceiver] progress', { fileId, bytesReceived, totalBytes });
-      
+
       // Update the progress map for all files
       this.updateFileProgress(fileId, bytesReceived, totalBytes, false);
-      
+
       // Also update the single file progress state for backward compatibility
       // (used by file-progress component)
       const entry = this.fileRegistry.get(fileId);
       const fileName = entry?.fileName ?? 'Unknown';
-      
+
       // Update progress state
       if (this.state.fileProgress?.fileId !== fileId) {
         this.update((prev) => ({
@@ -1319,13 +1351,22 @@ export class ConnectionViewModel {
    * Adds offered files to the registry with PENDING state.
    */
   private handleFileOffer(parsed: { type: string; from: string; data?: unknown }): void {
-    const data = parsed.data as { batchId: string; files: Array<{ fileId: string; fileName: string; fileSize: number; mimeType: string }> } | undefined;
+    const data = parsed.data as
+      | {
+          batchId: string;
+          files: Array<{ fileId: string; fileName: string; fileSize: number; mimeType: string }>;
+        }
+      | undefined;
     if (!data?.files || !Array.isArray(data.files)) {
       this.loggerFor('FileOffer').warn('Invalid FILE_OFFER message', { data });
       return;
     }
 
-    this.loggerFor('FileOffer').info('received FILE_OFFER', { from: parsed.from, fileCount: data.files.length, batchId: data.batchId });
+    this.loggerFor('FileOffer').info('received FILE_OFFER', {
+      from: parsed.from,
+      fileCount: data.files.length,
+      batchId: data.batchId,
+    });
 
     for (const fileInfo of data.files) {
       const entry: FileEntry = {
@@ -1340,7 +1381,9 @@ export class ConnectionViewModel {
       this.fileQueue.enqueue(entry);
 
       // Log state transition as required
-      console.info(`[FileState] received offer ${JSON.stringify({ fileId: fileInfo.fileId, name: fileInfo.fileName, size: fileInfo.fileSize })}`);
+      console.info(
+        `[FileState] received offer ${JSON.stringify({ fileId: fileInfo.fileId, name: fileInfo.fileName, size: fileInfo.fileSize })}`,
+      );
     }
   }
 
@@ -1384,7 +1427,11 @@ export class ConnectionViewModel {
       return;
     }
 
-    this.loggerFor('FileReject').info('received FILE_REJECT', { from: parsed.from, fileId: data.fileId, reason: data.reason });
+    this.loggerFor('FileReject').info('received FILE_REJECT', {
+      from: parsed.from,
+      fileId: data.fileId,
+      reason: data.reason,
+    });
 
     // Transition the file to REJECTED
     this.fileRegistry.transition(data.fileId, 'REJECT');
@@ -1426,8 +1473,14 @@ export class ConnectionViewModel {
           if (this.fileReceiver) {
             const data = parsed.data as { fileId: string; totalChunks: number } | undefined;
             if (data?.fileId && typeof data.totalChunks === 'number') {
-              this.loggerFor('FileReceiver').info('received TRANSFER_DONE', { fileId: data.fileId, totalChunks: data.totalChunks });
-              console.info('[FileReceiver] received TRANSFER_DONE', { fileId: data.fileId, totalChunks: data.totalChunks });
+              this.loggerFor('FileReceiver').info('received TRANSFER_DONE', {
+                fileId: data.fileId,
+                totalChunks: data.totalChunks,
+              });
+              console.info('[FileReceiver] received TRANSFER_DONE', {
+                fileId: data.fileId,
+                totalChunks: data.totalChunks,
+              });
               // Handle the transfer done by checking integrity
               void this.fileReceiver.handleTransferDone(data.fileId, data.totalChunks);
             }
@@ -1436,7 +1489,9 @@ export class ConnectionViewModel {
 
         case 'CHUNK_REQUEST_NACK':
           if (this.nackHandler) {
-            const data = parsed.data as { fileId: string; missingIndices: number[]; round: number } | undefined;
+            const data = parsed.data as
+              | { fileId: string; missingIndices: number[]; round: number }
+              | undefined;
             if (data?.fileId && Array.isArray(data.missingIndices) && typeof data.round === 'number') {
               this.loggerFor('NackHandler').info('received CHUNK_REQUEST_NACK', {
                 fileId: data.fileId,
@@ -1485,14 +1540,14 @@ export class ConnectionViewModel {
           if (cancelData?.fileId) {
             this.loggerFor('FileReceiver').info('received FILE_CANCEL', { fileId: cancelData.fileId });
             console.info(`[FileState] received FILE_CANCEL for ${cancelData.fileId}`);
-            
+
             // Transition the file state to CANCELLED on the receiver side
             this.fileRegistry.transition(cancelData.fileId, 'CANCEL');
             console.info(`[FileState] ${cancelData.fileId}: PENDING/QUEUED → CANCELLED (CANCEL)`);
-            
+
             // Remove from queue
             this.fileQueue.remove(cancelData.fileId);
-            
+
             // If this file was being offered to us (receiver), we don't have it in sentFileIds
             // So no need to remove from there
           }
@@ -1547,9 +1602,16 @@ export class ConnectionViewModel {
    * Simple file metadata registry for tracking file information.
    * In a real implementation, this would be populated by FILE_OFFER messages.
    */
-  private readonly fileMetadataRegistry: Map<string, { fileName: string; totalBytes: number; totalChunks: number }> = new Map();
+  private readonly fileMetadataRegistry: Map<
+    string,
+    { fileName: string; totalBytes: number; totalChunks: number }
+  > = new Map();
 
-  private getOrCreateFileMetadata(fileId: string): { fileName: string; totalBytes: number; totalChunks: number } {
+  private getOrCreateFileMetadata(fileId: string): {
+    fileName: string;
+    totalBytes: number;
+    totalChunks: number;
+  } {
     // For now, create generic metadata for testing
     // In a real implementation, this would be set by FILE_OFFER
     if (!this.fileMetadataRegistry.has(fileId)) {

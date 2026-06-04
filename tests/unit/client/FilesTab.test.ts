@@ -6,7 +6,8 @@ import { FileRegistry } from '../../../packages/client/src/files/index.js';
 class MockViewModel {
   private fileRegistry: FileRegistry = new FileRegistry();
   private sentFileIds: Set<string> = new Set();
-  private fileProgressMap: Map<string, { bytesTransferred: number; totalBytes: number; isSender: boolean }> = new Map();
+  private fileProgressMap: Map<string, { bytesTransferred: number; totalBytes: number; isSender: boolean }> =
+    new Map();
 
   getFileRegistry(): FileRegistry {
     return this.fileRegistry;

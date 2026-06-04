@@ -49,7 +49,7 @@ describe('FileSender', () => {
     const progressEvents: Array<{ fileId: string; bytesSent: number; totalBytes: number }> = [];
     const sendChunk = vi.fn().mockImplementation(async (chunk: ArrayBuffer) => {
       // Small delay to allow progress to be captured
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     const sender = new FileSender({ sendChunk });
@@ -66,7 +66,7 @@ describe('FileSender', () => {
     await sender.sendFile(file);
 
     expect(progressEvents.length).toBeGreaterThan(0);
-    
+
     // Verify bytesSent is monotonically increasing
     for (let i = 1; i < progressEvents.length; i++) {
       expect(progressEvents[i].bytesSent).toBeGreaterThan(progressEvents[i - 1].bytesSent);
@@ -94,7 +94,11 @@ describe('FileSender', () => {
     const decodedChunks: Array<{ index: number; data: Uint8Array; isLast: boolean }> = [];
     for (const chunk of sentChunks) {
       const decoded = decodeChunk(chunk);
-      decodedChunks.push({ index: decoded.index, data: new Uint8Array(decoded.data), isLast: decoded.isLast });
+      decodedChunks.push({
+        index: decoded.index,
+        data: new Uint8Array(decoded.data),
+        isLast: decoded.isLast,
+      });
     }
 
     // Sort by index
