@@ -1,15 +1,33 @@
+# Dependencies
 **/node_modules
+
+# Build outputs
 **/dist
 **/coverage
 **/.vite
 **/playwright-report
 **/test-results
+
+# IDE and OS files
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+
+# Git
 .git
-.opencode
-.docs
-.issues
-tests
 .gitignore
+
+# Documentation and issues (keep .docs and .issues as they contain project docs)
+.opencode
+
+# Tests
+tests
+
+# Docker
 .dockerignore
-Dockerfile
+
+# Markdown (except README.md which we want in the image)
 *.md
+!README.md

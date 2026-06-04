@@ -30,14 +30,14 @@ FROM node:${NODE_VERSION} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV HOST=0.0.0.0
 
 # Copy production artifacts
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/server/package.json ./packages/server/
 COPY --from=builder /app/packages/server/dist ./packages/server/dist
-COPY --from=builder /app/packages/client/dist ./packages/client/dist
-COPY --from=builder /app/packages/client/index.html ./packages/client/
+COPY --from=builder /app/packages/client/dist ./client-dist
 COPY --from=builder /app/package.json ./package.json
 
 # Install production-only deps

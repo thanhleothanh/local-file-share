@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
+    "start": "node packages/server/dist/index.js",
     "dev": "concurrently -k -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch packages/server/src/index.ts",
     "dev:client": "npm --workspace=@lfs/client run dev",
