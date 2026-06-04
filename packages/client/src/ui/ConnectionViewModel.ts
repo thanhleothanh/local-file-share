@@ -2,7 +2,7 @@ import type { DeviceDescriptor, AnySignalingMessage } from '@lfs/shared';
 import { ConnectionState, ConnectionStateMachine } from '@lfs/shared';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
-import { FileSender, FileReceiver } from '../files/index.js';
+import { FileSender, FileReceiver, FileSystemAccessWriter } from '../files/index.js';
 
 export interface ConnectionViewModelState {
   devices: readonly DeviceDescriptor[];
@@ -14,6 +14,15 @@ export interface ConnectionViewModelState {
   localDeviceId: string;
   localDeviceName: string;
   dataChannelOpen: boolean;
+  // File transfer progress
+  fileProgress: {
+    fileId: string;
+    fileName: string;
+    bytesTransferred: number;
+    totalBytes: number;
+    isSender: boolean;
+    showOpenFolder: boolean;
+  } | null;
 }
 
 export interface ConnectionViewModelOptions {
@@ -33,6 +42,7 @@ export class ConnectionViewModel {
   private webrtc: WebRTCConnection | null = null;
   private fileSender: FileSender | null = null;
   private fileReceiver: FileReceiver | null = null;
+  private fsaWriter: FileSystemAccessWriter | null = null;
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -46,6 +56,7 @@ export class ConnectionViewModel {
       localDeviceId: options.localDeviceId,
       localDeviceName: options.localDeviceName,
       dataChannelOpen: false,
+      fileProgress: null,
     };
   }
 
@@ -314,8 +325,47 @@ export class ConnectionViewModel {
     }
 
     this.loggerFor('FileSender').info('sending file', { name: file.name, size: file.size });
+
+    // Initialize progress state with file name
+    this.update((prev) => ({
+      ...prev,
+      fileProgress: {
+        fileId: '',
+        fileName: file.name,
+        bytesTransferred: 0,
+        totalBytes: file.size,
+        isSender: true,
+        showOpenFolder: false,
+      },
+    }));
+
     await this.fileSender.sendFile(file);
     this.loggerFor('FileSender').info('file sent successfully', { name: file.name });
+
+    // Clear progress after completion
+    this.update((prev) => ({
+      ...prev,
+      fileProgress: null,
+    }));
+  }
+
+  /**
+   * Open the downloads folder where files are saved.
+   */
+  async openDownloadsFolder(): Promise<void> {
+    if (this.fsaWriter) {
+      try {
+        await this.fsaWriter.openDirectory();
+      } catch (error) {
+        this.loggerFor('FSA').warn('Failed to open downloads folder', { error });
+        const w = window as unknown as { lfs?: { toast: (type: string, message: string) => void } };
+        if (typeof window !== 'undefined' && w.lfs?.toast) {
+          w.lfs.toast('error', 'Failed to open downloads folder');
+        }
+      }
+    } else {
+      this.loggerFor('FSA').warn('FSA writer not available');
+    }
   }
 
   /**
@@ -350,18 +400,21 @@ export class ConnectionViewModel {
       this.webrtc.on('data-channel-close', () => {
         this.loggerFor('WebRTC').info('data channels closed');
         this.update((prev) => ({ ...prev, dataChannelOpen: false }));
-        this.cleanupFileTransfer();
+        void this.cleanupFileTransfer();
       }),
-      this.webrtc.on('data-channel-message', (payload: { channel: 'control' | 'data'; data: string | ArrayBuffer }) => {
-        if (payload.channel === 'data' && typeof payload.data === 'string' && payload.data === 'hello') {
-          this.loggerFor('WebRTC').info('received hello message on data channel');
-          // Log to console as required by the issue
-          console.info('[WebRTC] received: hello');
-        } else if (payload.channel === 'data' && payload.data instanceof ArrayBuffer) {
-          // Handle incoming file chunk
-          this.handleIncomingChunk(payload.data);
-        }
-      }),
+      this.webrtc.on(
+        'data-channel-message',
+        (payload: { channel: 'control' | 'data'; data: string | ArrayBuffer }) => {
+          if (payload.channel === 'data' && typeof payload.data === 'string' && payload.data === 'hello') {
+            this.loggerFor('WebRTC').info('received hello message on data channel');
+            // Log to console as required by the issue
+            console.info('[WebRTC] received: hello');
+          } else if (payload.channel === 'data' && payload.data instanceof ArrayBuffer) {
+            // Handle incoming file chunk
+            this.handleIncomingChunk(payload.data);
+          }
+        },
+      ),
     );
 
     // Set up file sender and receiver when data channels open
@@ -397,8 +450,46 @@ export class ConnectionViewModel {
       },
     });
 
-    // Create file receiver
-    this.fileReceiver = new FileReceiver();
+    // Set up sender progress listener
+    this.fileSender.on('progress', (fileId: string, bytesSent: number, totalBytes: number) => {
+      this.loggerFor('FileSender').info('progress', { fileId, bytesSent, totalBytes });
+      console.info('[FileSender] progress', { fileId, bytesSent, totalBytes });
+      // Update progress state for sender
+      if (this.state.fileProgress?.fileId !== fileId) {
+        this.update((prev) => ({
+          ...prev,
+          fileProgress: {
+            fileId,
+            fileName: prev.fileProgress?.fileName ?? 'Unknown',
+            bytesTransferred: bytesSent,
+            totalBytes,
+            isSender: true,
+            showOpenFolder: false,
+          },
+        }));
+      } else {
+        this.update((prev) => ({
+          ...prev,
+          fileProgress: prev.fileProgress
+            ? {
+                ...prev.fileProgress,
+                bytesTransferred: bytesSent,
+                totalBytes,
+              }
+            : null,
+        }));
+      }
+    });
+
+    // Create FSA writer if available
+    if (FileSystemAccessWriter.isAvailable()) {
+      this.fsaWriter = new FileSystemAccessWriter();
+    }
+
+    // Create file receiver with the writer
+    this.fileReceiver = new FileReceiver({
+      writer: this.fsaWriter ?? undefined,
+    });
 
     // Set up receiver event listeners
     this.fileReceiver.onAssembled((fileId: string, fileName: string, byteLength: number) => {
@@ -410,11 +501,56 @@ export class ConnectionViewModel {
       if (typeof window !== 'undefined' && w.lfs?.toast) {
         w.lfs.toast('success', `Received: ${fileName} (${sizeInKB} KB)`);
       }
+      // Clear progress and show open folder link
+      this.update((prev) => ({
+        ...prev,
+        fileProgress: prev.fileProgress
+          ? {
+              ...prev.fileProgress,
+              showOpenFolder: true,
+              bytesTransferred: byteLength,
+            }
+          : null,
+      }));
+    });
+
+    this.fileReceiver.onProgress((fileId: string, bytesReceived: number, totalBytes: number) => {
+      this.loggerFor('FileReceiver').info('progress', { fileId, bytesReceived, totalBytes });
+      console.info('[FileReceiver] progress', { fileId, bytesReceived, totalBytes });
+      // Update progress state
+      if (this.state.fileProgress?.fileId !== fileId) {
+        this.update((prev) => ({
+          ...prev,
+          fileProgress: {
+            fileId,
+            fileName: this.state.fileProgress?.fileName ?? 'Unknown',
+            bytesTransferred: bytesReceived,
+            totalBytes,
+            isSender: false,
+            showOpenFolder: false,
+          },
+        }));
+      } else {
+        this.update((prev) => ({
+          ...prev,
+          fileProgress: prev.fileProgress
+            ? {
+                ...prev.fileProgress,
+                bytesTransferred: bytesReceived,
+                totalBytes,
+              }
+            : null,
+        }));
+      }
     });
   }
 
   /**
    * Handle an incoming chunk from the data channel.
+   * The chunk format is: [41-byte header][chunk data]
+   * The header contains: fileId (36 bytes), index (4 bytes), isLast (1 byte)
+   * But we also need fileName and totalBytes which should come from FILE_OFFER message.
+   * For now, we use generic values as the FILE_OFFER protocol is not yet implemented.
    */
   private handleIncomingChunk(rawChunk: ArrayBuffer): void {
     if (!this.fileReceiver) {
@@ -422,32 +558,41 @@ export class ConnectionViewModel {
       return;
     }
 
-    // For now, we generate a generic fileId and fileName
+    // For now, we use generic values
     // In a real implementation, these would come from the FILE_OFFER message
+    // which is sent before the actual chunks
     const fileId = 'test-file';
     const fileName = 'test.bin';
+    const totalBytes = 102400; // 100 KB
 
-    this.fileReceiver.handleChunk(fileId, fileName, rawChunk);
+    // Use the async version
+    void this.fileReceiver.handleChunk(fileId, fileName, totalBytes, rawChunk);
   }
 
   /**
    * Clean up file sender and receiver.
    */
-  private cleanupFileTransfer(): void {
-    if (this.fileSender) {
-      this.fileSender = null;
-    }
+  private async cleanupFileTransfer(): Promise<void> {
     if (this.fileReceiver) {
       this.fileReceiver.clear();
       this.fileReceiver = null;
     }
+    if (this.fsaWriter) {
+      try {
+        await this.fsaWriter.clear();
+      } catch {
+        // Ignore errors during cleanup
+      }
+      this.fsaWriter = null;
+    }
+    this.fileSender = null;
   }
 
   /**
    * Clean up WebRTC connection.
    */
   private cleanupWebRTC(): void {
-    this.cleanupFileTransfer();
+    void this.cleanupFileTransfer();
     if (this.webrtc) {
       this.webrtc.close();
       this.webrtc = null;
@@ -457,7 +602,10 @@ export class ConnectionViewModel {
   /**
    * Helper to create a logger with the given prefix.
    */
-  private loggerFor(prefix: string): { info: (msg: string, ctx?: unknown) => void; warn: (msg: string, ctx?: unknown) => void } {
+  private loggerFor(prefix: string): {
+    info: (msg: string, ctx?: unknown) => void;
+    warn: (msg: string, ctx?: unknown) => void;
+  } {
     return {
       info: (msg: string, ctx?: unknown) => {
         console.info(`[${prefix}] ${msg}`, ctx);

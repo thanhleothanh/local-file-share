@@ -1,28 +1,36 @@
 import type { DecodedChunk } from '@lfs/shared';
 import { decodeChunk } from '@lfs/shared';
+import type { FileSystemWriter } from './FileSystemWriter.js';
 
 export interface FileReceiverEvents {
   chunk: (fileId: string, index: number, data: ArrayBuffer, isLast: boolean) => void;
   assembled: (fileId: string, fileName: string, byteLength: number) => void;
+  progress: (fileId: string, bytesReceived: number, totalBytes: number) => void;
 }
 
 export interface FileReceiverOptions {
   onChunkCallback?: (chunk: DecodedChunk) => void;
+  writer?: FileSystemWriter | undefined;
 }
 
 type ChunkHandler = (fileId: string, index: number, data: ArrayBuffer, isLast: boolean) => void;
 type AssembledHandler = (fileId: string, fileName: string, byteLength: number) => void;
+type ProgressHandler = (fileId: string, bytesReceived: number, totalBytes: number) => void;
 
 export class FileReceiver {
   // Map of fileId -> Map of index -> ArrayBuffer
   private readonly chunkBuffers: Map<string, Map<number, ArrayBuffer>> = new Map();
   private readonly chunkFileNames: Map<string, string> = new Map();
+  private readonly chunkFileSizes: Map<string, number> = new Map();
   private readonly chunkListeners: ChunkHandler[] = [];
   private readonly assembledListeners: AssembledHandler[] = [];
+  private readonly progressListeners: ProgressHandler[] = [];
   private readonly onChunkCallback: ((chunk: DecodedChunk) => void) | undefined;
+  private readonly writer: FileSystemWriter | undefined;
 
   constructor(options: FileReceiverOptions = {}) {
     this.onChunkCallback = options.onChunkCallback;
+    this.writer = options.writer;
   }
 
   onChunk(handler: ChunkHandler): () => void {
@@ -41,6 +49,16 @@ export class FileReceiver {
       const index = this.assembledListeners.indexOf(handler);
       if (index !== -1) {
         this.assembledListeners.splice(index, 1);
+      }
+    };
+  }
+
+  onProgress(handler: ProgressHandler): () => void {
+    this.progressListeners.push(handler);
+    return () => {
+      const index = this.progressListeners.indexOf(handler);
+      if (index !== -1) {
+        this.progressListeners.splice(index, 1);
       }
     };
   }
@@ -65,16 +83,32 @@ export class FileReceiver {
     }
   }
 
+  private emitProgress(fileId: string, bytesReceived: number, totalBytes: number): void {
+    for (const listener of this.progressListeners) {
+      try {
+        listener(fileId, bytesReceived, totalBytes);
+      } catch {
+        // swallow
+      }
+    }
+  }
+
   /**
    * Handle an incoming raw chunk (encoded with header).
    * Decodes it and stores it in the buffer.
    */
-  handleChunk(fileId: string, fileName: string, rawChunk: ArrayBuffer): void {
+  async handleChunk(
+    fileId: string,
+    fileName: string,
+    totalBytes: number,
+    rawChunk: ArrayBuffer,
+  ): Promise<void> {
     const decoded = decodeChunk(rawChunk);
 
-    // Store the filename for this fileId if not already stored
+    // Store the filename and total bytes for this fileId if not already stored
     if (!this.chunkFileNames.has(fileId)) {
       this.chunkFileNames.set(fileId, fileName);
+      this.chunkFileSizes.set(fileId, totalBytes);
     }
 
     // Call optional chunk callback
@@ -82,7 +116,27 @@ export class FileReceiver {
       this.onChunkCallback(decoded);
     }
 
-    // Store the chunk
+    // Write to storage if writer is available
+    if (this.writer) {
+      try {
+        // Start the file on first chunk
+        if (decoded.index === 0) {
+          await this.writer.startFile({
+            fileId,
+            fileName,
+            fileSize: totalBytes,
+            mimeType: 'application/octet-stream',
+          });
+        }
+
+        // Write the chunk
+        await this.writer.writeChunk(fileId, decoded.index, decoded.data);
+      } catch (error) {
+        console.error('[FileReceiver] Failed to write chunk:', error);
+      }
+    }
+
+    // Store the chunk in memory buffer (for verification and fallback)
     let fileChunks = this.chunkBuffers.get(fileId);
     if (!fileChunks) {
       fileChunks = new Map();
@@ -90,11 +144,19 @@ export class FileReceiver {
     }
     fileChunks.set(decoded.index, decoded.data);
 
+    // Calculate bytes received so far
+    const bytesReceived = Array.from(fileChunks.entries()).reduce(
+      (sum, [, chunk]) => sum + chunk.byteLength,
+      0,
+    );
+    const fileTotalBytes = this.chunkFileSizes.get(fileId) ?? totalBytes;
+
     this.emitChunk(fileId, decoded.index, decoded.data, decoded.isLast);
+    this.emitProgress(fileId, bytesReceived, fileTotalBytes);
 
     // If this is the last chunk, try to assemble
     if (decoded.isLast) {
-      this.tryAssemble(fileId);
+      await this.tryAssemble(fileId);
     }
   }
 
@@ -102,11 +164,20 @@ export class FileReceiver {
    * Try to assemble a file if all chunks are received.
    * For simplicity, we assume the last chunk tells us we can assemble.
    */
-  private tryAssemble(fileId: string): void {
+  private async tryAssemble(fileId: string): Promise<void> {
     const fileChunks = this.chunkBuffers.get(fileId);
     if (!fileChunks) return;
 
     const fileName = this.chunkFileNames.get(fileId) ?? fileId;
+
+    // Finalize the writer if available
+    if (this.writer) {
+      try {
+        await this.writer.finalize(fileId);
+      } catch (error) {
+        console.error('[FileReceiver] Failed to finalize writer:', error);
+      }
+    }
 
     // Sort chunks by index and concatenate
     const sortedChunks = Array.from(fileChunks.entries()).sort((a, b) => a[0] - b[0]);
@@ -127,14 +198,25 @@ export class FileReceiver {
     // Clean up
     this.chunkBuffers.delete(fileId);
     this.chunkFileNames.delete(fileId);
+    this.chunkFileSizes.delete(fileId);
   }
 
   /**
    * Clear all buffered chunks for a file.
    */
-  cancelFile(fileId: string): void {
+  async cancelFile(fileId: string): Promise<void> {
+    // Cancel the writer if available
+    if (this.writer) {
+      try {
+        await this.writer.cancel(fileId);
+      } catch (error) {
+        console.error('[FileReceiver] Failed to cancel writer:', error);
+      }
+    }
+
     this.chunkBuffers.delete(fileId);
     this.chunkFileNames.delete(fileId);
+    this.chunkFileSizes.delete(fileId);
   }
 
   /**
@@ -143,5 +225,6 @@ export class FileReceiver {
   clear(): void {
     this.chunkBuffers.clear();
     this.chunkFileNames.clear();
+    this.chunkFileSizes.clear();
   }
 }

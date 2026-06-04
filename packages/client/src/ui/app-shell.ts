@@ -4,6 +4,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ConnectionViewModel, ConnectionViewModelState } from './ConnectionViewModel.js';
 import './connected-card.js';
 import './connection-tab.js';
+import './file-progress.js';
 import './incoming-prompt.js';
 
 export type ActiveTab = 'connection' | 'files';
@@ -128,6 +129,7 @@ export class AppShell extends LitElement {
     const connectedDeviceId = state?.connectedDeviceId ?? null;
     const connectingToDeviceId = state?.connectingToDeviceId ?? null;
     const incomingRequest = state?.incomingRequest ?? null;
+    const fileProgress = state?.fileProgress ?? null;
     this.connected = connectionState === ConnectionState.CONNECTED && connectedDeviceId !== null;
     return html`
       <nav class="tabs" role="tablist">
@@ -163,6 +165,7 @@ export class AppShell extends LitElement {
                 connectedDeviceId,
                 connectingToDeviceId,
                 incomingRequest,
+                fileProgress,
               )
             : html`<p>Files tab</p>`
         }
@@ -178,6 +181,7 @@ export class AppShell extends LitElement {
     connectedDeviceId: string | null,
     connectingToDeviceId: string | null,
     incomingRequest: ConnectionViewModelState['incomingRequest'],
+    fileProgress: ConnectionViewModelState['fileProgress'],
   ) {
     if (!this.viewModel) {
       return html`<connection-tab
@@ -225,6 +229,18 @@ export class AppShell extends LitElement {
             @connect-clicked=${(ev: CustomEvent<{ deviceId: string }>) =>
               this.viewModel?.requestConnect(ev.detail.deviceId)}
           ></connection-tab>`
+          : null
+      }
+      ${
+        fileProgress !== null
+          ? html`<file-progress
+            .bytesTransferred=${fileProgress.bytesTransferred}
+            .totalBytes=${fileProgress.totalBytes}
+            .fileName=${fileProgress.fileName}
+            .isSender=${fileProgress.isSender}
+            .showOpenFolder=${fileProgress.showOpenFolder}
+            @open-folder-clicked=${() => this.viewModel?.openDownloadsFolder()}
+          ></file-progress>`
           : null
       }
     `;
