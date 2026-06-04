@@ -2,6 +2,7 @@ import type { DeviceDescriptor, AnySignalingMessage } from '@lfs/shared';
 import { ConnectionState, ConnectionStateMachine } from '@lfs/shared';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
 import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
+import { SCTPBackpressure } from '../webrtc/SCTPBackpressure.js';
 import { FileSender, FileReceiver, FileSystemAccessWriter } from '../files/index.js';
 
 export interface ConnectionViewModelState {
@@ -439,11 +440,17 @@ export class ConnectionViewModel {
   private initFileTransfer(dataChannel: RTCDataChannel): void {
     this.cleanupFileTransfer();
 
-    // Create file sender that sends chunks via the data channel
+    // Wrap the data channel with SCTP backpressure
+    // This replaces the send method with a Promise-returning version
+    // that waits for the buffer to drain below the threshold
+    const wrappedDataChannel = SCTPBackpressure.wrap(dataChannel);
+
+    // Create file sender that sends chunks via the wrapped data channel
     this.fileSender = new FileSender({
       sendChunk: async (chunk: ArrayBuffer) => {
-        if (dataChannel.readyState === 'open') {
-          dataChannel.send(chunk);
+        if (wrappedDataChannel.readyState === 'open') {
+          // The wrapped send returns a Promise, so we await it for backpressure
+          await wrappedDataChannel.send(chunk);
         } else {
           throw new Error('Data channel not open');
         }
