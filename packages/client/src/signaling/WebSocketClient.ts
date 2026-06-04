@@ -15,7 +15,10 @@ export type WebSocketEvent =
   | 'peer-disconnected'
   | 'registered'
   | 'parse-error'
-  | 'socket-error';
+  | 'socket-error'
+  | 'incoming-offer'
+  | 'incoming-answer'
+  | 'incoming-ice-candidate';
 
 export interface WebSocketLogger {
   info: (msg: string, ctx?: unknown) => void;
@@ -159,6 +162,15 @@ export class WebSocketClient {
         break;
       case 'disconnect':
         this.emit('peer-disconnected', message);
+        break;
+      case 'offer':
+        this.emit('incoming-offer', message);
+        break;
+      case 'answer':
+        this.emit('incoming-answer', message);
+        break;
+      case 'ice-candidate':
+        this.emit('incoming-ice-candidate', message);
         break;
       default:
         break;

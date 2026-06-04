@@ -1,6 +1,7 @@
-import type { DeviceDescriptor } from '@lfs/shared';
+import type { DeviceDescriptor, AnySignalingMessage } from '@lfs/shared';
 import { ConnectionState, ConnectionStateMachine } from '@lfs/shared';
 import type { WebSocketClient } from '../signaling/WebSocketClient.js';
+import { WebRTCConnection, type WebRTCConnectionOptions } from '../webrtc/WebRTCConnection.js';
 
 export interface ConnectionViewModelState {
   devices: readonly DeviceDescriptor[];
@@ -11,6 +12,7 @@ export interface ConnectionViewModelState {
   incomingRequest: { fromDeviceId: string; fromDeviceName: string } | null;
   localDeviceId: string;
   localDeviceName: string;
+  dataChannelOpen: boolean;
 }
 
 export interface ConnectionViewModelOptions {
@@ -27,6 +29,7 @@ export class ConnectionViewModel {
   private state: ConnectionViewModelState;
   private readonly listeners = new Set<ConnectionViewModelListener>();
   private readonly unsubscribers: Array<() => void> = [];
+  private webrtc: WebRTCConnection | null = null;
 
   constructor(options: ConnectionViewModelOptions) {
     this.client = options.client;
@@ -39,6 +42,7 @@ export class ConnectionViewModel {
       incomingRequest: null,
       localDeviceId: options.localDeviceId,
       localDeviceName: options.localDeviceName,
+      dataChannelOpen: false,
     };
   }
 
@@ -91,7 +95,9 @@ export class ConnectionViewModel {
           connectedDeviceId: null,
           connectingToDeviceId: null,
           incomingRequest: null,
+          dataChannelOpen: false,
         }));
+        this.cleanupWebRTC();
         try {
           this.sm.reset(ConnectionState.IDLE);
         } catch {
@@ -112,6 +118,8 @@ export class ConnectionViewModel {
         } catch {
           /* ignore */
         }
+        // On connect-accepted, initialize WebRTC as answerer
+        this.initiateWebRTC(m.from, false);
         this.update((prev) => ({
           ...prev,
           connectedDeviceId: m.from,
@@ -124,6 +132,7 @@ export class ConnectionViewModel {
         } catch {
           /* ignore */
         }
+        this.cleanupWebRTC();
         this.update((prev) => ({
           ...prev,
           connectingToDeviceId: null,
@@ -135,16 +144,38 @@ export class ConnectionViewModel {
         } catch {
           /* ignore */
         }
+        this.cleanupWebRTC();
         this.update((prev) => ({
           ...prev,
           connectionState: ConnectionState.IDLE,
           connectedDeviceId: null,
         }));
       }),
+      this.client.on('incoming-offer', (msg) => {
+        const message = msg as AnySignalingMessage;
+        const sdpData = message.data as { sdp?: string; type?: 'offer' | 'answer' } | undefined;
+        if (this.webrtc && sdpData?.sdp) {
+          this.webrtc.handleOffer({ sdp: sdpData.sdp, type: 'offer' } as RTCSessionDescriptionInit);
+        }
+      }),
+      this.client.on('incoming-answer', (msg) => {
+        const message = msg as AnySignalingMessage;
+        const sdpData = message.data as { sdp?: string; type?: 'offer' | 'answer' } | undefined;
+        if (this.webrtc && sdpData?.sdp) {
+          this.webrtc.handleAnswer({ sdp: sdpData.sdp, type: 'answer' } as RTCSessionDescriptionInit);
+        }
+      }),
+      this.client.on('incoming-ice-candidate', (msg) => {
+        const message = msg as AnySignalingMessage;
+        if (this.webrtc) {
+          this.webrtc.handleIceCandidate(message);
+        }
+      }),
     );
   }
 
   detach(): void {
+    this.cleanupWebRTC();
     for (const unsub of this.unsubscribers) {
       unsub();
     }
@@ -172,6 +203,8 @@ export class ConnectionViewModel {
     } catch {
       return false;
     }
+    // Initialize WebRTC as offerer when request is sent
+    this.initiateWebRTC(targetDeviceId, true);
     this.update((prev) => ({
       ...prev,
       connectingToDeviceId: targetDeviceId,
@@ -243,6 +276,10 @@ export class ConnectionViewModel {
     if (this.state.connectionState !== ConnectionState.CONNECTED) return false;
     const target = this.state.connectedDeviceId;
     if (target === null) return false;
+
+    // Close WebRTC connection
+    this.cleanupWebRTC();
+
     this.client.send({
       type: 'disconnect',
       from: this.state.localDeviceId,
@@ -259,8 +296,80 @@ export class ConnectionViewModel {
       ...prev,
       connectionState: ConnectionState.IDLE,
       connectedDeviceId: null,
+      dataChannelOpen: false,
     }));
     return true;
+  }
+
+  /**
+   * Initialize WebRTC connection.
+   * @param targetDeviceId - The device ID to connect to
+   * @param isOfferer - Whether this side is the offerer
+   */
+  private initiateWebRTC(targetDeviceId: string, isOfferer: boolean): void {
+    // Skip WebRTC initialization if the API is not available (e.g., in test environments)
+    if (typeof RTCPeerConnection === 'undefined') {
+      this.loggerFor('WebRTC').info('RTCPeerConnection not available, skipping WebRTC initialization');
+      return;
+    }
+
+    this.cleanupWebRTC();
+
+    const options: WebRTCConnectionOptions = {
+      signalingClient: this.client,
+      localDeviceId: this.state.localDeviceId,
+      targetDeviceId,
+      isOfferer,
+    };
+
+    this.webrtc = new WebRTCConnection(options);
+
+    // Set up WebRTC event listeners
+    this.unsubscribers.push(
+      this.webrtc.on('data-channel-open', () => {
+        this.loggerFor('WebRTC').info('data channels open');
+        this.update((prev) => ({ ...prev, dataChannelOpen: true }));
+      }),
+      this.webrtc.on('data-channel-close', () => {
+        this.loggerFor('WebRTC').info('data channels closed');
+        this.update((prev) => ({ ...prev, dataChannelOpen: false }));
+      }),
+      this.webrtc.on('data-channel-message', (payload: { channel: 'control' | 'data'; data: string | ArrayBuffer }) => {
+        if (payload.channel === 'data' && typeof payload.data === 'string' && payload.data === 'hello') {
+          this.loggerFor('WebRTC').info('received hello message on data channel');
+          // Log to console as required by the issue
+          console.info('[WebRTC] received: hello');
+        }
+      }),
+    );
+
+    // Start WebRTC connection
+    if (isOfferer) {
+      void this.webrtc.connect();
+    } else {
+      void this.webrtc.accept();
+    }
+  }
+
+  /**
+   * Clean up WebRTC connection.
+   */
+  private cleanupWebRTC(): void {
+    if (this.webrtc) {
+      this.webrtc.close();
+      this.webrtc = null;
+    }
+  }
+
+  /**
+   * Helper to create a logger with the given prefix.
+   */
+  private loggerFor(prefix: string): { info: (msg: string, ctx?: unknown) => void } {
+    return {
+      info: (msg: string, ctx?: unknown) => {
+        console.info(`[${prefix}] ${msg}`, ctx);
+      },
+    };
   }
 
   private update(updater: (prev: ConnectionViewModelState) => ConnectionViewModelState): void {

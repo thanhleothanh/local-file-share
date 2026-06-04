@@ -13,6 +13,7 @@ import {
   DisconnectHandler,
   RejectConnectHandler,
 } from './ConnectHandlers.js';
+import { AnswerHandler, IceCandidateHandler, OfferHandler } from './WebRTCHandlers.js';
 import { DeviceRegistry } from './DeviceRegistry.js';
 import { parseSignalingMessage } from './MessageParser.js';
 import { RegisterHandler, broadcastDeviceList } from './RegisterHandler.js';
@@ -68,6 +69,9 @@ export class SignalingServer {
     this.router.register(new AcceptConnectHandler(this.logger.child('AcceptConnectHandler')));
     this.router.register(new RejectConnectHandler(this.logger.child('RejectConnectHandler')));
     this.router.register(new DisconnectHandler(this.logger.child('DisconnectHandler')));
+    this.router.register(new OfferHandler(this.logger.child('OfferHandler')));
+    this.router.register(new AnswerHandler(this.logger.child('AnswerHandler')));
+    this.router.register(new IceCandidateHandler(this.logger.child('IceCandidateHandler')));
 
     this.registry.onChange((devices) => {
       broadcastDeviceList({ broadcast: (m) => this.broadcast(m) }, devices, this.logger.child('DeviceList'));
