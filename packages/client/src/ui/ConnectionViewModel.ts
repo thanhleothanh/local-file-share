@@ -324,9 +324,14 @@ export class ConnectionViewModel {
   /**
    * Send a file to the connected device.
    * Only works when in CONNECTED state and data channels are open.
-   * Generates a fileId, sends all chunks, then sends TRANSFER_DONE.
+   * Generates a fileId, sends all chunks, then sends TRANSFER_DONE and waits for FILE_RECEIVED.
+   *
+   * @param file - The file to send
+   * @param fileId - Optional file ID (defaults to generated UUID)
+   * @param waitForAck - If true, waits for FILE_RECEIVED or timeout (default: true)
+   * @returns Promise that resolves when the file transfer completes or rejects on timeout
    */
-  async sendFile(file: File, fileId: string = this.generateFileId()): Promise<void> {
+  async sendFile(file: File, fileId: string = this.generateFileId(), waitForAck: boolean = true): Promise<void> {
     if (this.state.connectionState !== ConnectionState.CONNECTED || !this.fileSender) {
       throw new Error('Cannot send file: not connected or file sender not initialized');
     }
@@ -350,19 +355,29 @@ export class ConnectionViewModel {
     const actualFileId = fileId || this.generateFileId();
 
     // Calculate total chunks
-    const chunkCount = Math.ceil(file.size / 16384);
+    const chunkCount = Math.ceil(file.size / CHUNK_SIZE);
 
-    await this.fileSender.sendFile(file, actualFileId);
-    this.loggerFor('FileSender').info('file chunks sent', { name: file.name, fileId: actualFileId, chunks: chunkCount });
+    try {
+      // Send file with waitForAck option
+      // This will wait for FILE_RECEIVED or timeout after sending all chunks
+      await this.fileSender.sendFile(file, actualFileId, waitForAck);
+      this.loggerFor('FileSender').info('file chunks sent', { name: file.name, fileId: actualFileId, chunks: chunkCount });
 
-    // Send TRANSFER_DONE message
-    this.sendTransferDone(actualFileId, chunkCount);
+      // Send TRANSFER_DONE message after all chunks are sent
+      // This is done by the FileSender when waitForAck is true, but we also do it here for safety
+      this.sendTransferDone(actualFileId, chunkCount);
 
-    // Clear progress after completion
-    this.update((prev) => ({
-      ...prev,
-      fileProgress: null,
-    }));
+      this.loggerFor('FileSender').info('file transfer completed', { fileId: actualFileId });
+    } catch (error) {
+      this.loggerFor('FileSender').warn('file transfer failed', { fileId: actualFileId, error });
+      throw error;
+    } finally {
+      // Clear progress after completion or failure
+      this.update((prev) => ({
+        ...prev,
+        fileProgress: null,
+      }));
+    }
   }
 
   /**
@@ -733,11 +748,11 @@ export class ConnectionViewModel {
           this.loggerFor('FileSender').info('received FILE_RECEIVED', parsed.data);
           console.info('[FileSender] received FILE_RECEIVED', parsed.data);
           // File transfer completed successfully
-          // Clean up the cache for this file
+          // Notify the sender and clean up the cache
           if (this.fileSender && parsed.data && typeof parsed.data === 'object') {
             const data = parsed.data as { fileId: string };
             if (data.fileId) {
-              this.fileSender.deleteFile(data.fileId);
+              this.fileSender.handleFileReceived(data.fileId);
             }
           }
           break;

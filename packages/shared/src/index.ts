@@ -12,3 +12,4 @@ export * from './AckHandler.js';
 export * from './ChunkBuffer.js';
 export * from './FileIntegrityChecker.js';
 export * from './NackHandler.js';
+export * from './TransferCompletion.js';
