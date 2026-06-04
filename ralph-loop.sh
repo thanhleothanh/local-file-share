@@ -3,13 +3,13 @@
 # Stop on critical failures within the loop setup
 set -e
 
-for ((i=1; i<=100; i++)); do
+for ((i=1; i<=15; i++)); do
     echo "----------------------------------------"
-    echo "Iteration $i/100..."
+    echo "Iteration $i/15..."
     echo "----------------------------------------"
     
     set +e
-    vibe --prompt "Take the next grabbable issues or issues criterion in .docs/issues/ folder, should consider the blockers and dependency to see which need to be worked on first/next, only work on AFK issues that are ready to be worked on. After the criterions are done, mark them as done. If the issue was only partially done, update the progress and status what still needs to be worked on. Commit to git with commit message on what was implemented after meaningful work is done and criterion is marked as done (no need to be a full issue) and verified that it works. When all AFK issues/criterion are done, then print <>FINISH VIBING<>"
+    vibe --prompt "Explore the codebase, and documentations in .docs if not already done (pay attention to what was deprecated and what has been updated). Work on the next grabbable issues or criterion in .issues/ folder, should consider the blockers and dependency to see which need to be worked on first/next, only work on AFK issues that are ready to be worked on. If the issue was only partially done, update the progress and status in the issue file, after each criterion in the issues is done, mark it as done. Commit to git with commit message on what was implemented after meaningful work is done and criterions are marked as done. After the commit should finish the iteration and start the next one, if there is a need to do more work on the same issue, it can be done in the next iteration. If there is a need to switch to another issue, it can be done in the next iteration as well. The main goal is to make meaningful progress on the issues and not to rush through them. Remember to take breaks and stay hydrated! Print FINISH VIBING when all grabbable issues are done"
     
     EXIT_CODE=$?
     set -e
@@ -23,12 +23,6 @@ for ((i=1; i<=100; i++)); do
     # Check if finish token is in the latest git commit
     if git log -1 --pretty=%B | grep -q "FINISH VIBING"; then
         echo "🎉 Success: Finish token detected in git log."
-        break
-    fi
-
-    # Check if there are any remaining AFK issues in the docs
-    if ! grep -q "AFK" .docs/issues/* 2>/dev/null; then
-        echo "🎉 Success: No more AFK issues found in .docs/issues/."
         break
     fi
 
