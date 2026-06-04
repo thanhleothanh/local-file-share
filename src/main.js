@@ -180,7 +180,7 @@ function updateUI(oldState = webrtcManager.state) {
   // Files header `+` button: visible only while the connection is
   // CONNECTED. The button is hidden — not disabled — so a missing
   // button signals "nothing to do" cleanly.
-  sendFilesBtn.hidden = !isConnected;
+  sendFilesBtn.hidden = !connectedDevice;
 
   renderFileList();
 }
