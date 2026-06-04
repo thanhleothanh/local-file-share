@@ -3,4 +3,7 @@ export { FileReceiver, type FileReceiverOptions, type FileReceiverEvents } from 
 export type { FileSystemWriter, FileMetadata } from './FileSystemWriter.js';
 export { FileSystemAccessWriter } from './FileSystemAccessWriter.js';
 export { IndexedDBWriter, BrowserDownloadLauncher, StorageBackendFactory, type DownloadLauncher } from './IndexedDBWriter.js';
+export { FileStateMachine, type FileState, type FileEvent, type FileEntry, type TransitionResult } from './FileStateMachine.js';
+export { FileQueue } from './FileQueue.js';
+export { FileRegistry } from './FileRegistry.js';
 export type { ChunkBuffer } from '@lfs/shared';
