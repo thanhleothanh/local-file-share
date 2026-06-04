@@ -25,6 +25,6 @@ npm-debug.log*
 
 # Test coverage
 coverage/
-.docs/prds/
-.docs/issues/
-.issues/
+# .docs/prds/
+# .docs/issues/
+# .issues/
