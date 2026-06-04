@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { errorHandler } from '@utils/errorHandler.js';
 import { storageManager } from '@utils/storage.js';
 
-// QR compression utilities removed (Issue 007) - replaced with WebSocket signaling
+
 // Generate a simple secret for connection verification
 function generateSecret(length = 16) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -40,7 +40,7 @@ export const setWebSocketClient = (client) => {
 
 // Connection state constants (ADR-0010)
 export const ConnectionState = {
-    NEW: 'NEW',           // After QR #1 created, before QR #2 scanned
+    NEW: 'NEW',           // Initial state after device discovery
     CONNECTING: 'CONNECTING', // WebRTC handshake in progress
     CONNECTED: 'CONNECTED',   // Data channels open, no active transfer
     TRANSFERRING: 'TRANSFERRING', // File transfer in progress
@@ -164,10 +164,8 @@ export class WebRTCManager {
             }
         }
     }
-
-    // ============================================
-    // QR Methods Removed (Issue 007)
-    // Replaced with WebSocket signaling methods below
+    
+    
     // ============================================
 
     // ============================================
@@ -618,7 +616,7 @@ export class WebRTCManager {
      * Called from both channel `onopen` and `onconnectionstatechange`,
      * because the offerer may reach the channel-open state while still
      * in NEW (channels are created synchronously and open before the
-     * answer QR is processed), and the answerer typically sees the peer
+     * answer is processed), and the answerer typically sees the peer
      * connection become 'connected' first.
      */
     tryTransitionToConnected() {

@@ -16,13 +16,6 @@ export const ErrorType = {
     WEBRTC_DATA_CHANNEL_ERROR: 'WEBRTC_DATA_CHANNEL_ERROR',
     WEBRTC_SIGNALING_ERROR: 'WEBRTC_SIGNALING_ERROR',
     
-    // QR errors
-    QR_SCAN_ERROR: 'QR_SCAN_ERROR',
-    QR_INVALID_FORMAT: 'QR_INVALID_FORMAT',
-    QR_SECRET_MISMATCH: 'QR_SECRET_MISMATCH',
-    QR_CONNID_MISMATCH: 'QR_CONNID_MISMATCH',
-    QR_COMPRESSION_ERROR: 'QR_COMPRESSION_ERROR',
-    
     // File errors
     FILE_TOO_LARGE: 'FILE_TOO_LARGE',
     FILE_VALIDATION_ERROR: 'FILE_VALIDATION_ERROR',
@@ -78,13 +71,6 @@ export class AppError extends Error {
             [ErrorType.WEBRTC_ICE_ERROR]: 'ICE negotiation failed. Cannot establish direct connection.',
             [ErrorType.WEBRTC_DATA_CHANNEL_ERROR]: 'Data channel error. File transfer cannot continue.',
             [ErrorType.WEBRTC_SIGNALING_ERROR]: 'Signaling error. Connection cannot be established.',
-            
-            // QR
-            [ErrorType.QR_SCAN_ERROR]: 'Failed to scan QR code. Please try again.',
-            [ErrorType.QR_INVALID_FORMAT]: 'Invalid QR code format. This is not a valid Local File Share QR code.',
-            [ErrorType.QR_SECRET_MISMATCH]: 'Connection secret mismatch. The answer QR does not match the offer QR.',
-            [ErrorType.QR_CONNID_MISMATCH]: 'Connection ID mismatch. The answer QR is for a different connection.',
-            [ErrorType.QR_COMPRESSION_ERROR]: 'Failed to compress/decompress QR data.',
             
             // File
             [ErrorType.FILE_TOO_LARGE]: 'File is too large. Maximum size is 500MB.',
@@ -248,35 +234,6 @@ export class ErrorHandler {
             errorType,
             severity,
             { ...context, module: 'WebRTC' }
-        ));
-    }
-
-    /**
-     * Handle a QR error
-     * @param {Error} error - QR error
-     * @param {string} context - Additional context
-     */
-    handleQRError(error, context = {}) {
-        let errorType = ErrorType.QR_SCAN_ERROR;
-        let severity = ErrorSeverity.MEDIUM;
-
-        if (error.message.includes('Invalid QR code')) {
-            errorType = ErrorType.QR_INVALID_FORMAT;
-        } else if (error.message.includes('secret')) {
-            errorType = ErrorType.QR_SECRET_MISMATCH;
-            severity = ErrorSeverity.CRITICAL;
-        } else if (error.message.includes('Connection ID')) {
-            errorType = ErrorType.QR_CONNID_MISMATCH;
-            severity = ErrorSeverity.CRITICAL;
-        } else if (error.message.includes('compress')) {
-            errorType = ErrorType.QR_COMPRESSION_ERROR;
-        }
-
-        this.handleError(new AppError(
-            error.message,
-            errorType,
-            severity,
-            { ...context, module: 'QR' }
         ));
     }
 
