@@ -1,0 +1,35 @@
+{
+  "name": "local-file-share",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch packages/server/src/index.ts",
+    "dev:client": "npm --workspace=@lfs/client run dev",
+    "build": "npm --workspace=@lfs/shared run build && npm --workspace=@lfs/server run build && npm --workspace=@lfs/client run build",
+    "build:shared": "npm --workspace=@lfs/shared run build",
+    "build:server": "npm --workspace=@lfs/server run build",
+    "build:client": "npm --workspace=@lfs/client run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^22.7.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "concurrently": "^9.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

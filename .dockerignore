@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+**/playwright-report
+**/test-results
+.git
+.opencode
+.docs
+.issues
+tests
+.gitignore
+.dockerignore
+Dockerfile
+*.md

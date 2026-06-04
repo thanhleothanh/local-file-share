@@ -28,3 +28,5 @@ coverage/
 # .docs/prds/
 # .docs/issues/
 # .issues/
+.opencode/
+*.tsbuildinfo
