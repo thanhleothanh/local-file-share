@@ -1,40 +1,50 @@
 # Local File Share
 
-Peer-to-peer file sharing via QR code connection through LAN network
+Peer-to-peer file sharing via WebSocket device discovery and WebRTC connection on local network
 
 ---
 
 ```
  ┌────────────────────────────────────────────────────────────────────┐
- │                 CONNECTION — 2-QR Handshake                       │
+ │              CONNECTION — WebSocket Device Discovery                  │
  └────────────────────────────────────────────────────────────────────┘
 
  ┌────────────────────────┐                       ┌────────────────────────┐
- │   Device A (Initiator) │                       │   Device B (Joiner)    │
+ │    Device A            │                       │    Device B            │
  ├────────────────────────┤                       ├────────────────────────┤
  │                        │                       │                        │
  │  ┌──────────────────┐  │                       │                        │
- │  │ 1. "Create Offer" │  │                       │                        │
- │  │ 2.  Show Offer QR │  │                       │  ┌──────────────────┐ │
- │  └────────┬─────────┘  │                       │  │ 3. "Scan Offer"   │ │
- │           │            │                       │  └────────┬─────────┘ │
- │           │   Offer QR  (SDP + secret)          │           │           │
+ │  │ Device List      │  │                       │  ┌──────────────────┐ │
+ │  │ - Happy Fox      │  │                       │  │ Device List      │ │
+ │  │ - Sleepy Tiger   │  │                       │  │ - Happy Fox      │ │
+ │  │ [Connect]        │  │                       │  │ - Sleepy Tiger   │ │
+ │  └────────┬─────────┘  │                       │  │ [You]            │ │
+ │           │            │                       │  └──────────────────┘ │
+ │           │ Connect Request                    │           │           │
+ │           │ (via WebSocket signaling server)   │           │           │
  │           └─────────────────────────────────────►           │           │
  │                        │                       │           │           │
- │                        │                       │  ┌────────▼─────────┐ │
- │                        │                       │  │ 4. Show Answer QR│ │
+ │                        │                       │  ┌──────────────────┐ │
+ │                        │                       │  │ Connection       │ │
+ │                        │                       │  │ Request Modal    │ │
+ │                        │                       │  │                  │ │
+ │                        │                       │  │ "Happy Fox wants │ │
+ │                        │                       │  │ to connect to    │ │
+ │                        │                       │  │ you"             │ │
+ │                        │                       │  │ [Accept][Reject] │ │
  │                        │                       │  └────────┬─────────┘ │
  │  ┌──────────────────┐  │                       │           │           │
- │  │ 5. Scan Answer QR │◄─────────────────────────┘           │           │
- │  └────────┬─────────┘  │    Answer QR (SDP + secret)        │           │
- │           │            │                       │                        │
- │           ▼            │                       │           ▼            │
+ │  │ WebRTC Handshake │◄─────────────────────────┘           │           │
+ │  │ (offer/answer/   │  │                               │           │
+ │  │ ICE candidates) │  │                               │           │
+ │  └────────┬─────────┘  │                       │           ▼           │
+ │           │            │                       │  ┌──────────────────┐ │
+ │           ▼            │                       │  │ Device List      │ │
  │  ┌─────────────────────────────┐   ┌─────────────────────────────┐     │
  │  │      ✅ CONNECTED           │   │      ✅ CONNECTED           │     │
  │  │  WebRTC Data Channels Open  │   │  WebRTC Data Channels Open  │     │
  │  └─────────────────────────────┘   └─────────────────────────────┘     │
  └────────────────────────┘                       └────────────────────────┘
-
 
  ┌────────────────────────────────────────────────────────────────────┐
  │                      FILE TRANSFER                                │
@@ -89,45 +99,72 @@ Peer-to-peer file sharing via QR code connection through LAN network
  │           │  │ FILE_RECEIVED (control)  │◄─────┤  │ Save dialog      │ │
  │           │  └──────────────────────────┘      │  └──────────────────┘ │
  │                        │                       │                        │
- └────────────────────────┘                       └────────────────────────┘
+ └────────────────────────────┘                       └────────────────────────┘
 ```
 
 ## Getting Started
 
-1. Open the app on **two devices** on the same WiFi/LAN network.
-2. The app has two panels: **Connection** and **Files**.
+### Prerequisites
 
-## Connecting
+- Docker (recommended) or Node.js 18+
 
-### Device A (Initiator)
+### Running with Docker (Recommended)
 
-1. In the **Connection** panel, click **"Create Offer"**.
-2. A QR code appears. Click **"Proceed to scan Answer QR from other device"** to advance.
-3. When the camera opens, scan the Answer QR shown on Device B.
+```bash
+# Build and run the application
+docker build -t local-file-share .
+docker run -p 3000:3000 local-file-share
 
-### Device B (Joiner)
+# Access the application at http://localhost:3000
+```
 
-1. In the **Connection** panel, click **"Scan Offer"**.
-2. Point the camera at Device A's Offer QR.
-3. An Answer QR appears on your screen — keep it visible for Device A to scan.
+### Running Locally
 
-### Connected
+```bash
+# Install dependencies
+npm install
 
-- Both devices show a "Connected" view with a heartbeat animation on step 3.
+# Start development server (Vite + Express)
+npm run dev
+
+# Access the application at http://localhost:3000
+# (Vite serves on 3000, Express WebSocket on 3001, proxied)
+
+# Or for production
+npm run build
+npm start
+```
+
+## Connecting Devices
+
+1. **Start the server** on one machine using Docker or `npm run dev`
+2. **Open the app** on two devices on the same WiFi/LAN network (both pointing to the server URL)
+3. **View device list** - All connected devices appear in the Connection panel
+4. **Initiate connection** - Click "Connect" on another device in the list
+5. **Accept connection** - The other device sees a modal dialog to accept or reject
+6. **Connected!** - Once accepted, WebRTC establishes a direct peer-to-peer connection
 
 ## Sending Files
 
-1. Ensure you are in the **Connected** state.
-2. In the **Files** panel, click the **"+" button** (top-right of the Files header).
-3. Select one or more files (max 500 MB each).
-4. The peer will be prompted to accept or reject. Wait for the transfer to complete.
+1. Ensure you are in the **Connected** state (device shows "Connected" with disconnect button)
+2. In the **Files** panel, click the **"+" button** (top-right of the Files header)
+3. Select one or more files (max 500 MB each)
+4. The peer will be prompted to accept or reject
+5. Wait for the transfer to complete
 
 ## Receiving Files
 
-1. When a peer sends a file, it appears in the **Files** panel as **"Offered by peer"**.
-2. Click **"Accept"** to start receiving, or **"Reject"** to decline.
-3. When the transfer completes, the browser's **save dialog** opens automatically — choose where to save.
+1. When a peer sends a file, it appears in the **Files** panel as **"Offered by [device name]"**
+2. Click **"Accept"** to start receiving, or **"Reject"** to decline
+3. When the transfer completes, the browser's **save dialog** opens automatically — choose where to save
 
----
+## Architecture
+
+- **WebSocket Signaling Server** (Express + `ws`): Device discovery and WebRTC signaling relay
+- **WebRTC**: Direct peer-to-peer connection for file transfer
+- **Device Identification**: Auto-generated descriptive names (e.g., "Happy Fox") + UUID
+- **File Transfer**: Chunked transfer (8KB chunks) with ACK/NACK for reliability
+- **Data Channels**: Separate control channel (JSON messages) and data channel (binary chunks)
+- **Backpressure**: SCTP-based flow control to prevent buffer overflow
 
 Detailed design decisions and architecture are documented in `.docs/`.
