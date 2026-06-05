@@ -83,6 +83,49 @@ export class WebRTCManager {
         this.eventListeners = {};
         this.pendingIceCandidates = [];
         this.initialized = false;
+        this.websocketHandlers = {
+            offer: null,
+            answer: null,
+            iceCandidate: null
+        };
+        this.currentTargetDeviceId = null;
+        this.processingOffer = false; // Flag to prevent re-entrancy
+        this.processingAnswer = false; // Flag to prevent re-entrancy
+    }
+
+    /**
+     * Generate a deterministic connection ID from device IDs
+     * Both devices in a connection will generate the same ID
+     * @param {string} deviceId1 - First device ID
+     * @param {string} deviceId2 - Second device ID
+     * @returns {string} Deterministic connection ID
+     */
+    generateConnectionId(deviceId1, deviceId2) {
+        // Sort device IDs to ensure both devices generate the same connId
+        const sorted = [deviceId1, deviceId2].sort();
+        return sorted.join('-');
+    }
+
+    /**
+     * Generate a random connection ID (fallback)
+     * @returns {string} UUID v4
+     */
+    generateRandomConnectionId() {
+        return uuidv4();
+    }
+
+    /**
+     * Generate a new secret for connection verification
+     * @param {number} length - Secret length (default: 16)
+     * @returns {string}
+     */
+    generateSecret(length = 16) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
     }
 
     /**
@@ -176,9 +219,11 @@ export class WebRTCManager {
      * Start WebRTC connection with a specific device using WebSocket signaling
      * This is the initiator path for WebSocket-based connection
      * @param {string} targetDeviceId - Device ID to connect to
+     * @param {string} connId - Optional pre-generated connection ID (from answerer)
+     * @param {string} secret - Optional pre-generated secret (from answerer)
      * @returns {Promise<void>}
      */
-    async startWebSocketConnection(targetDeviceId) {
+    async startWebSocketConnection(targetDeviceId, connId = null, secret = null) {
         if (!websocketClient) {
             throw new Error('WebSocket client not initialized');
         }
@@ -188,17 +233,24 @@ export class WebRTCManager {
             await this.close();
         }
 
-        console.log('Starting WebSocket connection to:', targetDeviceId);
+        console.log('Starting WebSocket connection to:', targetDeviceId, 'with connId:', connId || 'deterministic');
         
-        // Generate connection ID and secret for this connection
-        this.connectionId = uuidv4();
-        this.secret = generateSecret(16);
+        // Use provided connId/secret if available, otherwise generate deterministic from device IDs
+        if (connId) {
+            this.connectionId = connId;
+            this.secret = secret || this.generateSecret(16);
+        } else {
+            const myDeviceId = this.getDeviceId();
+            this.connectionId = this.generateConnectionId(myDeviceId, targetDeviceId);
+            this.secret = this.generateSecret(16);
+        }
 
         // Create peer connection
         this.peerConnection = this.createPeerConnection();
         
-        // Setup event handlers
+        // Setup event handlers for WebSocket signaling (trickle ICE per ADR-0037)
         this.setupPeerConnectionHandlers();
+        this.setupWebSocketIceCandidateHandler(targetDeviceId);
         this.setupWebSocketSignalingHandlers(targetDeviceId);
 
         // Create data channels (offerer creates channels)
@@ -211,10 +263,7 @@ export class WebRTCManager {
         // Send offer via WebSocket immediately (trickle ICE will send candidates later)
         await this.sendOfferViaWebSocket(targetDeviceId, offer.sdp);
 
-        // Transition to CONNECTING state
-        await this.transitionState(ConnectionState.CONNECTING);
-
-        // Save connection to storage
+        // Save connection to storage FIRST (before transitioning state)
         try {
             await storageManager.saveConnection({
                 connId: this.connectionId,
@@ -225,6 +274,44 @@ export class WebRTCManager {
             console.error('Failed to save connection:', error);
             errorHandler.handleStorageError(error, { operation: 'startWebSocketConnection' });
         }
+
+        // Transition to CONNECTING state
+        await this.transitionState(ConnectionState.CONNECTING);
+    }
+
+    /**
+     * Cleanup WebSocket signaling event handlers
+     */
+    cleanupWebSocketSignalingHandlers() {
+        if (!websocketClient) return;
+        
+        // Remove offer handler
+        if (this.websocketHandlers.offer) {
+            websocketClient.off('offer', this.websocketHandlers.offer);
+            this.websocketHandlers.offer = null;
+        }
+        
+        // Remove answer handler
+        if (this.websocketHandlers.answer) {
+            websocketClient.off('answer', this.websocketHandlers.answer);
+            this.websocketHandlers.answer = null;
+        }
+        
+        // Remove ICE candidate handler
+        if (this.websocketHandlers.iceCandidate) {
+            websocketClient.off('ice-candidate', this.websocketHandlers.iceCandidate);
+            this.websocketHandlers.iceCandidate = null;
+        }
+        
+        this.currentTargetDeviceId = null;
+    }
+
+    /**
+     * Get the current device ID from websocketClient
+     * @returns {string|null} Device ID or null
+     */
+    getDeviceId() {
+        return websocketClient ? websocketClient.getDeviceId() : null;
     }
 
     /**
@@ -234,38 +321,50 @@ export class WebRTCManager {
     setupWebSocketSignalingHandlers(targetDeviceId) {
         if (!websocketClient) return;
 
+        // Cleanup any existing handlers first
+        this.cleanupWebSocketSignalingHandlers();
+        
+        this.currentTargetDeviceId = targetDeviceId;
+        const myDeviceId = this.getDeviceId();
+
         // Handle incoming offer
-        websocketClient.on('offer', async (data) => {
-            if (data.from !== targetDeviceId) {
-                console.log('Ignoring offer from different device:', data.from);
+        this.websocketHandlers.offer = async (data) => {
+            // Check both from and to fields to ensure message is for this connection
+            if (data.from !== targetDeviceId || (data.to && data.to !== myDeviceId)) {
+                console.log('Ignoring offer - not for current connection:', data.from, '->', data.to, 'expected:', targetDeviceId, '->', myDeviceId);
                 return;
             }
             
-            console.log('Received offer via WebSocket from:', data.from);
-            await this.handleIncomingOffer(data.from, data.sdp);
-        });
+            console.log('Received offer via WebSocket from:', data.from, 'with connId:', data.connId);
+            await this.handleIncomingOffer(data.from, data.sdp, data.connId, data.secret);
+        };
+        websocketClient.on('offer', this.websocketHandlers.offer);
 
         // Handle incoming answer
-        websocketClient.on('answer', async (data) => {
-            if (data.from !== targetDeviceId) {
-                console.log('Ignoring answer from different device:', data.from);
+        this.websocketHandlers.answer = async (data) => {
+            // Check both from and to fields
+            if (data.from !== targetDeviceId || (data.to && data.to !== myDeviceId)) {
+                console.log('Ignoring answer - not for current connection:', data.from, '->', data.to);
                 return;
             }
             
             console.log('Received answer via WebSocket from:', data.from);
             await this.handleIncomingAnswer(data.from, data.sdp);
-        });
+        };
+        websocketClient.on('answer', this.websocketHandlers.answer);
 
         // Handle incoming ICE candidate (trickle ICE)
-        websocketClient.on('ice-candidate', async (data) => {
-            if (data.from !== targetDeviceId) {
-                console.log('Ignoring ICE candidate from different device:', data.from);
+        this.websocketHandlers.iceCandidate = async (data) => {
+            // Check both from and to fields
+            if (data.from !== targetDeviceId || (data.to && data.to !== myDeviceId)) {
+                console.log('Ignoring ICE candidate - not for current connection:', data.from, '->', data.to);
                 return;
             }
             
             console.log('Received ICE candidate via WebSocket from:', data.from);
             await this.handleIncomingIceCandidate(data);
-        });
+        };
+        websocketClient.on('ice-candidate', this.websocketHandlers.iceCandidate);
     }
 
     /**
@@ -280,6 +379,7 @@ export class WebRTCManager {
 
         const message = {
             type: 'offer',
+            from: this.getDeviceId(),
             to: targetDeviceId,
             sdp: sdp,
             connId: this.connectionId,
@@ -307,6 +407,7 @@ export class WebRTCManager {
 
         const message = {
             type: 'answer',
+            from: this.getDeviceId(),
             to: targetDeviceId,
             sdp: sdp,
             connId: this.connectionId,
@@ -335,6 +436,7 @@ export class WebRTCManager {
 
         const message = {
             type: 'ice-candidate',
+            from: this.getDeviceId(),
             to: targetDeviceId,
             candidate: candidate.candidate,
             sdpMid: candidate.sdpMid,
@@ -357,48 +459,77 @@ export class WebRTCManager {
      * This is the answerer path for WebSocket-based connection
      * @param {string} fromDeviceId - Device ID that sent the offer
      * @param {string} sdp - SDP offer string
+     * @param {string} connId - Connection ID from offerer (optional, falls back to generating new one)
+     * @param {string} secret - Connection secret from offerer (optional, falls back to generating new one)
      */
-    async handleIncomingOffer(fromDeviceId, sdp) {
+    async handleIncomingOffer(fromDeviceId, sdp, connId = null, secret = null) {
         console.log('Handling incoming offer from:', fromDeviceId);
 
-        // Store connection info
-        this.connectionId = uuidv4(); // Generate new connection ID for answerer
-        this.secret = generateSecret(16);
+        // Guard: prevent re-entrancy (duplicate offer messages)
+        if (this.processingOffer) {
+            console.warn('Ignoring incoming offer - already processing an offer');
+            return;
+        }
+        this.processingOffer = true;
 
-        // Create peer connection
-        this.peerConnection = this.createPeerConnection();
-        this.setupPeerConnectionHandlers();
-        this.setupWebSocketSignalingHandlers(fromDeviceId);
-
-        // Set remote description
-        await this.peerConnection.setRemoteDescription({
-            type: 'offer',
-            sdp: sdp
-        });
-
-        // Answerer only listens for incoming data channels
-        await this.setupDataChannels(false);
-
-        // Create answer
-        const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-
-        // Send answer via WebSocket immediately
-        await this.sendAnswerViaWebSocket(fromDeviceId, answer.sdp);
-
-        // Transition to CONNECTING state
-        await this.transitionState(ConnectionState.CONNECTING);
-
-        // Save connection to storage
         try {
-            await storageManager.saveConnection({
-                connId: this.connectionId,
-                secret: this.secret,
-                state: ConnectionState.CONNECTING
+            // Guard: prevent handling multiple offers simultaneously
+            // Only allow if we're in CLOSED state (not already connecting/connected)
+            if (this.state !== ConnectionState.CLOSED && this.state !== ConnectionState.NEW) {
+                console.warn('Ignoring incoming offer - already in connection state:', this.state);
+                return;
+            }
+
+            // Guard: prevent creating multiple peer connections
+            if (this.peerConnection) {
+                console.warn('Ignoring incoming offer - peer connection already exists');
+                return;
+            }
+
+            // Generate deterministic connId from device IDs - both devices will compute the same ID
+            const myDeviceId = this.getDeviceId();
+            this.connectionId = this.generateConnectionId(myDeviceId, fromDeviceId);
+            this.secret = secret || this.generateSecret(16);
+            
+            console.log('Generated deterministic connection ID from offer:', this.connectionId, 'devices:', myDeviceId, '<->', fromDeviceId);
+
+            // Create peer connection
+            this.peerConnection = this.createPeerConnection();
+            this.setupPeerConnectionHandlers();
+            this.setupWebSocketIceCandidateHandler(fromDeviceId);
+
+            // Set remote description
+            await this.peerConnection.setRemoteDescription({
+                type: 'offer',
+                sdp: sdp
             });
-        } catch (error) {
-            console.error('Failed to save connection:', error);
-            errorHandler.handleStorageError(error, { operation: 'handleIncomingOffer' });
+
+            // Answerer only listens for incoming data channels
+            await this.setupDataChannels(false);
+
+            // Create answer
+            const answer = await this.peerConnection.createAnswer();
+            await this.peerConnection.setLocalDescription(answer);
+
+            // Send answer via WebSocket immediately
+            await this.sendAnswerViaWebSocket(fromDeviceId, answer.sdp);
+
+            // Save connection to storage FIRST (before transitioning state)
+            try {
+                await storageManager.saveConnection({
+                    connId: this.connectionId,
+                    secret: this.secret,
+                    state: ConnectionState.CONNECTING
+                });
+            } catch (error) {
+                console.error('Failed to save connection:', error);
+                errorHandler.handleStorageError(error, { operation: 'handleIncomingOffer' });
+            }
+
+            // Transition to CONNECTING state
+            await this.transitionState(ConnectionState.CONNECTING);
+        } finally {
+            this.processingOffer = false;
         }
     }
 
@@ -410,15 +541,45 @@ export class WebRTCManager {
     async handleIncomingAnswer(fromDeviceId, sdp) {
         console.log('Handling incoming answer from:', fromDeviceId);
 
-        // Set remote description
-        await this.peerConnection.setRemoteDescription({
-            type: 'answer',
-            sdp: sdp
-        });
+        // Guard: prevent re-entrancy (duplicate answer messages)
+        if (this.processingAnswer) {
+            console.warn('Ignoring incoming answer - already processing an answer');
+            return;
+        }
+        this.processingAnswer = true;
 
-        // Transition to CONNECTING state - wait for actual connection
-        // The connection will transition to CONNECTED when data channels open
-        await this.transitionState(ConnectionState.CONNECTING);
+        try {
+            // Guard: prevent processing answer without a peer connection
+            if (!this.peerConnection) {
+                console.warn('Ignoring incoming answer - no peer connection exists');
+                return;
+            }
+
+            // Guard: prevent processing answer in wrong state
+            // Should be in CONNECTING state (offer sent, waiting for answer)
+            if (this.state !== ConnectionState.CONNECTING) {
+                console.warn('Ignoring incoming answer - not in CONNECTING state:', this.state);
+                return;
+            }
+
+            // Set remote description
+            try {
+                await this.peerConnection.setRemoteDescription({
+                    type: 'answer',
+                    sdp: sdp
+                });
+                console.log('Successfully set remote description (answer) from:', fromDeviceId);
+            } catch (error) {
+                console.error('Failed to set remote description:', error);
+                errorHandler.handleWebRTCError(error, { operation: 'handleIncomingAnswer' });
+                throw error;
+            }
+
+            // Connection is already in CONNECTING state from startWebSocketConnection
+            // The connection will transition to CONNECTED when data channels open
+        } finally {
+            this.processingAnswer = false;
+        }
     }
 
     /**
@@ -808,6 +969,14 @@ export class WebRTCManager {
      */
     async close() {
         this.clearIdleTimer();
+        
+        // Reset processing flags
+        this.processingOffer = false;
+        this.processingAnswer = false;
+        
+        // Clean up WebSocket signaling handlers
+        this.cleanupWebSocketSignalingHandlers();
+        
         await this.transitionState(ConnectionState.CLOSED);
         
         if (this.controlChannel) {

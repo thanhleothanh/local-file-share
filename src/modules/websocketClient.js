@@ -204,7 +204,7 @@ export class WebSocketClient {
       case 'connect-accepted':
         this.emit('connect-accepted', {
           fromDeviceId: message.fromDeviceId,
-          fromDeviceName: message.fromDeviceName,
+          fromDeviceName: message.fromDeviceName
         });
         break;
 
@@ -221,6 +221,8 @@ export class WebSocketClient {
           from: message.from,
           to: message.to,
           sdp: message.sdp,
+          connId: message.connId,
+          secret: message.secret
         });
         break;
 
@@ -229,6 +231,8 @@ export class WebSocketClient {
           from: message.from,
           to: message.to,
           sdp: message.sdp,
+          connId: message.connId,
+          secret: message.secret
         });
         break;
 

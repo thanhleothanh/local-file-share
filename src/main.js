@@ -44,6 +44,7 @@ const fileList = document.getElementById('fileList');
 // Device list state
 let devices = []; // List of connected devices from WebSocket
 let connectedDevice = null; // Currently connected device
+let connectingDevice = null; // Device we're currently establishing WebRTC connection with
 
 // Connection request timeout tracking (ADR-0038)
 let pendingConnectionRequests = {}; // deviceId -> { timestamp }
@@ -485,9 +486,17 @@ async function connectToDevice(deviceId) {
   console.log('Connecting to device:', deviceId);
   const device = devices.find(d => d.deviceId === deviceId);
   if (device) {
-    // Check if already connected (1:1 only per ADR-0017)
-    if (connectedDevice) {
+    // Check if already connected or connecting (1:1 only per ADR-0017)
+    if (connectedDevice || connectingDevice) {
       showToast('Already connected to another device', 'warning');
+      return;
+    }
+    
+    // Prevent connecting while WebRTC manager is not in CLOSED state
+    // This prevents race conditions during disconnection
+    if (webrtcManager.state !== ConnectionState.CLOSED && webrtcManager.state !== ConnectionState.FAILED) {
+      console.log('Cannot connect: webrtcManager state is', webrtcManager.state);
+      showToast('Wait for current connection to fully disconnect', 'warning');
       return;
     }
 
@@ -552,22 +561,21 @@ async function disconnectDevice(deviceId) {
   console.log('Disconnecting from device:', deviceId);
   
   try {
-    // Close WebRTC connection
+    // Clear connected device IMMEDIATELY to prevent race conditions on reconnect
+    connectedDevice = null;
+    connectingDevice = null;
+    
+    // Clear any pending requests for this device
+    cancelPendingConnectionRequest(deviceId);
+    updateDeviceListUI();
+    
+    // Close WebRTC connection - this will trigger disconnection on the peer
+    // and Device B will detect it through WebRTC layer (not WebSocket)
     if (webrtcManager.state !== ConnectionState.CLOSED) {
       await webrtcManager.close();
     }
     
-    // Send disconnect message to server
-    websocketClient.sendToDevice(deviceId, 'disconnect');
-    
-    // Clear connected device
-    connectedDevice = null;
-    
-    // Clear any pending requests for this device
-    cancelPendingConnectionRequest(deviceId);
-    
     showToast(`Disconnected from ${devices.find(d => d.deviceId === deviceId)?.deviceName || deviceId}`, 'success');
-    updateDeviceListUI();
   } catch (error) {
     console.error('Error disconnecting:', error);
     showToast(`Error disconnecting: ${error.message}`, 'error');
@@ -593,7 +601,7 @@ function hideConnectionModal() {
   connectionModalOverlay.classList.add('hidden');
 }
 
-function acceptConnectionRequest() {
+async function acceptConnectionRequest() {
   if (pendingConnectionRequest) {
     const { deviceId, deviceName } = pendingConnectionRequest;
     console.log('Accepting connection from:', deviceName);
@@ -604,14 +612,29 @@ function acceptConnectionRequest() {
     hideConnectionModal();
     showToast(`Connection accepted with ${deviceName}`, 'success');
     
-    // Mark as connected
-    connectedDevice = { deviceId, deviceName };
-    updateDeviceListUI();
+    // Set connectingDevice - will become connectedDevice when WebRTC connection reaches CONNECTED state
+    connectingDevice = { deviceId, deviceName };
     
-    // Start WebRTC handshake as answerer (will receive offer from initiator)
+    // Close any existing connection to clear state before accepting new one
+    // This ensures we're in CLOSED state and can receive the new offer
+    try {
+      await webrtcManager.close();
+      
+      // Prepare WebRTC manager to receive the offer from the initiator
+      // Set up WebSocket signaling handlers to process the incoming offer
+      webrtcManager.setupWebSocketSignalingHandlers(deviceId);
+      
+      updateDeviceListUI();
+      console.log('Waiting for WebRTC offer from:', deviceName);
+    } catch (error) {
+      console.error('Failed to close existing connection or setup handlers:', error);
+      // Still update UI even if there's an error
+      updateDeviceListUI();
+    }
+    
     // The offerer (initiator) will start the connection and send the offer
+    // Both devices will generate the same deterministic connId from their device IDs
     // So we just need to wait for the offer to arrive
-    console.log('Waiting for WebRTC offer from:', deviceName);
   }
 }
 
@@ -648,10 +671,20 @@ webrtcManager.on('stateChange', (newState, oldState) => {
     });
   }
 
+  // Set connectedDevice when WebRTC connection is established
+  if (newState === ConnectionState.CONNECTED) {
+    // Use connectingDevice info (set during accept/connect-accepted)
+    if (connectingDevice) {
+      connectedDevice = connectingDevice;
+      connectingDevice = null;
+    }
+  }
+
   if (newState === ConnectionState.FAILED) {
     // Peer-disconnect lifecycle event. Update UI to reflect disconnected state.
     // No toast here as the UI change is the signal.
     connectedDevice = null;
+    connectingDevice = null;
     updateUI(oldState);
     return;
   }
@@ -659,6 +692,7 @@ webrtcManager.on('stateChange', (newState, oldState) => {
   // Clear connected device when connection closes
   if (newState === ConnectionState.CLOSED) {
     connectedDevice = null;
+    connectingDevice = null;
   }
 
   updateUI(oldState);
@@ -892,27 +926,72 @@ function setupWebSocketListeners() {
   });
 
   // Device disconnected
-  websocketClient.on('device-disconnected', (deviceId) => {
+  websocketClient.on('device-disconnected', async (deviceId) => {
     console.log('Device disconnected:', deviceId);
     // Remove from local list and clear if it was the connected device
     devices = devices.filter(d => d.deviceId !== deviceId);
     if (connectedDevice && connectedDevice.deviceId === deviceId) {
       connectedDevice = null;
     }
+    if (connectingDevice && connectingDevice.deviceId === deviceId) {
+      connectingDevice = null;
+    }
+    
+    // Close WebRTC connection if we have an active connection
+    const currentConn = webrtcManager.getConnectionInfo();
+    if (currentConn.connId) {
+      try {
+        await webrtcManager.close();
+      } catch (error) {
+        console.error('Failed to close connection on device disconnect:', error);
+      }
+    }
+    
     updateDeviceListUI();
   });
 
   // Connection request received
-  websocketClient.on('connect-request', ({ fromDeviceId, fromDeviceName }) => {
+  websocketClient.on('connect-request', async ({ fromDeviceId, fromDeviceName }) => {
     console.log('Connection request from:', fromDeviceName, '(', fromDeviceId, ')');
-    // Check if already connected (1:1 only per ADR-0017)
-    if (connectedDevice) {
-      // Auto-reject if already connected
-      websocketClient.sendToDevice(fromDeviceId, 'reject-connect', { 
-        reason: 'Already connected to another device' 
-      });
-      showToast(`Rejected ${fromDeviceName}: already connected`, 'warning');
-      return;
+    // Check if already connected or connecting (1:1 only per ADR-0017)
+    if (connectedDevice || connectingDevice) {
+      // If the request is from the currently connected device, it's a reconnect - auto-accept
+      if (connectedDevice && connectedDevice.deviceId === fromDeviceId) {
+        console.log('Reconnection request from currently connected device, auto-accepting');
+        // Clear state
+        connectedDevice = null;
+        connectingDevice = null;
+        cancelPendingConnectionRequest(fromDeviceId);
+        
+        // Always close existing WebRTC connection to clean up peer connection
+        // (state might be CLOSED but peerConnection might still be set)
+        try {
+          await webrtcManager.close();
+        } catch (error) {
+          console.error('Failed to close existing connection for reconnect:', error);
+        }
+        
+        // Set connectingDevice for Device B (answerer)
+        connectingDevice = { deviceId: fromDeviceId, deviceName: fromDeviceName };
+        
+        // Set up WebSocket signaling handlers to receive the incoming offer
+        webrtcManager.setupWebSocketSignalingHandlers(fromDeviceId);
+        
+        // Auto-accept the reconnection by sending accept-connect
+        // Device A (initiator) will then start the WebRTC connection
+        websocketClient.sendToDevice(fromDeviceId, 'accept-connect');
+        
+        updateDeviceListUI();
+        showToast(`Reconnecting with ${fromDeviceName}...`, 'info');
+        return;
+      } else {
+        // Different device - auto-reject if already connected
+        websocketClient.sendToDevice(fromDeviceId, 'reject-connect', { 
+          reason: 'Already connected to another device' 
+        });
+        showToast(`Rejected ${fromDeviceName}: already connected to ${connectedDevice?.deviceName || connectedDevice?.deviceId}`, 'warning');
+        return;
+      }
     }
     showConnectionModal(fromDeviceName, fromDeviceId);
   });
@@ -925,20 +1004,19 @@ function setupWebSocketListeners() {
     // Clear any pending timeout for this device
     cancelPendingConnectionRequest(fromDeviceId);
     
-    // Mark as connected
-    connectedDevice = { deviceId: fromDeviceId, deviceName: fromDeviceName };
+    // Set connectingDevice - will become connectedDevice when WebRTC connection reaches CONNECTED state
+    connectingDevice = { deviceId: fromDeviceId, deviceName: fromDeviceName };
     updateDeviceListUI();
     
     // Start WebRTC handshake as initiator
+    // Both devices will generate the same deterministic connId from their device IDs
     try {
       await webrtcManager.startWebSocketConnection(fromDeviceId);
       console.log('WebRTC handshake started with:', fromDeviceName);
     } catch (error) {
       console.error('Failed to start WebRTC handshake:', error);
       showToast(`Failed to connect: ${error.message}`, 'error');
-      // Clear connected device on failure
-      connectedDevice = null;
-      updateDeviceListUI();
+      connectingDevice = null;
     }
   });
 
@@ -953,50 +1031,8 @@ function setupWebSocketListeners() {
     updateDeviceListUI();
   });
 
-  // WebRTC signaling messages
-  websocketClient.on('offer', async (data) => {
-    console.log('Received WebRTC offer from:', data.from);
-    // Check if this is for the currently connected device
-    if (connectedDevice && connectedDevice.deviceId === data.from) {
-      try {
-        await webrtcManager.handleIncomingOffer(data.from, data.sdp);
-      } catch (error) {
-        console.error('Failed to handle incoming offer:', error);
-        showToast(`Failed to handle offer from ${data.from}: ${error.message}`, 'error');
-      }
-    } else {
-      console.log('Ignoring offer from non-connected device:', data.from);
-    }
-  });
-
-  websocketClient.on('answer', async (data) => {
-    console.log('Received WebRTC answer from:', data.from);
-    // Check if this is for the currently connected device
-    if (connectedDevice && connectedDevice.deviceId === data.from) {
-      try {
-        await webrtcManager.handleIncomingAnswer(data.from, data.sdp);
-      } catch (error) {
-        console.error('Failed to handle incoming answer:', error);
-        showToast(`Failed to handle answer from ${data.from}: ${error.message}`, 'error');
-      }
-    } else {
-      console.log('Ignoring answer from non-connected device:', data.from);
-    }
-  });
-
-  websocketClient.on('ice-candidate', async (data) => {
-    console.log('Received ICE candidate from:', data.from);
-    // Check if this is for the currently connected device
-    if (connectedDevice && connectedDevice.deviceId === data.from) {
-      try {
-        await webrtcManager.handleIncomingIceCandidate(data);
-      } catch (error) {
-        console.error('Failed to handle incoming ICE candidate:', error);
-      }
-    } else {
-      console.log('Ignoring ICE candidate from non-connected device:', data.from);
-    }
-  });
+  // WebRTC signaling messages are now handled by webrtcManager.js
+  // with proper connection-specific filtering and cleanup
 
   // Connection status
   websocketClient.on('connected', () => {

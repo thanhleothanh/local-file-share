@@ -139,6 +139,7 @@ export class FileTransferManager {
         const currentConn = webrtcManager.getConnectionInfo();
         if (message.connId !== currentConn.connId) {
             console.warn('FILE_OFFER for different connection, ignoring');
+            console.warn('  FILE_OFFER connId:', message.connId, 'Current connId:', currentConn.connId);
             return;
         }
 
@@ -488,6 +489,8 @@ export class FileTransferManager {
         const { sendImmediately = true } = options;
         const files = [];
         const currentConn = webrtcManager.getConnectionInfo();
+        
+        console.log('selectFiles: current connection ID:', currentConn.connId, 'state:', currentConn.state);
         
         if (!currentConn.connId) {
             console.error('No active connection, cannot send files');
