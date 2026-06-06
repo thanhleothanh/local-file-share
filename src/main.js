@@ -40,6 +40,14 @@ const fileInput = document.getElementById('fileInput');
 const sendFilesBtn = document.getElementById('sendFilesBtn');
 const fileList = document.getElementById('fileList');
 
+// QR scan upload (ADR-0031): one pair per scanner pane
+const offerScanFileInput = document.getElementById('offerScanFileInput');
+const offerScanFileBtn = document.getElementById('offerScanFileBtn');
+const answerScanFileInput = document.getElementById('answerScanFileInput');
+const answerScanFileBtn = document.getElementById('answerScanFileBtn');
+
+const SCAN_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
 // State management
 let currentScanMode = null; // 'OFFER' or 'ANSWER'
 let offerQRData = null;
@@ -547,11 +555,11 @@ async function scanOfferQR() {
     );
   } catch (error) {
     console.error('Failed to start scanning:', error);
-    showToast('Failed to access camera: ' + error.message);
+    // Camera declined or unavailable. Per ADR-0031, keep the
+    // scanner pane visible so the user can still connect via
+    // the image upload button.
+    showToast('Camera unavailable. Use "Upload QR image" below to scan.');
     qrHandler.stopScanning();
-    connectionRole = 'idle';
-    currentStep = 1;
-    updateUI();
   }
 }
 
@@ -584,7 +592,10 @@ async function scanAnswerQR() {
     );
   } catch (error) {
     console.error('Failed to start scanning:', error);
-    showToast('Failed to access camera: ' + error.message);
+    // Camera declined or unavailable. Per ADR-0031, keep the
+    // scanner pane visible so the user can still connect via
+    // the image upload button.
+    showToast('Camera unavailable. Use "Upload QR image" below to scan.');
     qrHandler.stopScanning();
     stopAnswerScanner();
   }
@@ -610,7 +621,38 @@ function stopAnswerScanner() {
 function stopAllScanners() {
   qrHandler.stopScanning();
   stopAnswerScanner();
+  if (offerScanFileInput) offerScanFileInput.value = '';
+  if (answerScanFileInput) answerScanFileInput.value = '';
 }
+
+/**
+ * Wire up a hidden file input + visible button pair to act as
+ * an alternative QR input source (ADR-0031). The button opens
+ * the native file picker; the change handler delegates the
+ * picked file to the existing decode pipeline. The camera, if
+ * running, is left alone so the user can fall back to it.
+ */
+function setupScanFileUpload(fileInputEl, buttonEl, mode) {
+  if (!fileInputEl || !buttonEl) return;
+  buttonEl.addEventListener('click', () => fileInputEl.click());
+  fileInputEl.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > SCAN_FILE_MAX_BYTES) {
+      showToast('Image too large (max 10 MB)');
+      return;
+    }
+    await qrHandler.scanFromImageFile(
+      file,
+      (qrData) => handleQRScanResult(qrData, mode),
+      () => showToast('No QR code found in image'),
+    );
+  });
+}
+
+setupScanFileUpload(offerScanFileInput, offerScanFileBtn, 'OFFER');
+setupScanFileUpload(answerScanFileInput, answerScanFileBtn, 'ANSWER');
 
 /**
  * Close the underlying WebRTC connection. WebRTC-specific concern:

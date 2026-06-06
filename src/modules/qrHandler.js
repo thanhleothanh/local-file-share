@@ -153,14 +153,44 @@ export class QRHandler {
                     // On error, continue scanning (do nothing)
                 }
             );
-            
+
         } catch (error) {
             console.error('Failed to start scanning:', error);
             this.scanning = false;
+            // Re-throw so the caller can react to camera failures
+            // (e.g. permission denied) without relying on the
+            // onError callback, which is reserved for decode-time
+            // errors from handleScanResult.
+            throw error;
+        }
+    }
+
+    /**
+     * Decode a QR code from a user-supplied image file.
+     * Available at every scan point as an alternative to the
+     * camera path (ADR-0031). The file is processed entirely
+     * in the browser via the existing reader; no network
+     * round-trip. The result is routed through the same
+     * validation pipeline as a camera scan, so the two paths
+     * can never diverge in what counts as a "valid" QR.
+     *
+     * @param {File} file - Image file picked by the user
+     * @param {Function} onResult - Callback when a valid QR is decoded
+     * @param {Function} onError - Callback on decode/validation error
+     * @returns {Promise<void>}
+     */
+    async scanFromImageFile(file, onResult, onError) {
+        const url = URL.createObjectURL(file);
+        try {
+            await this.initReader();
+            const result = await this.qrCodeReader.decodeFromImageUrl(url);
+            this.handleScanResult(result, onResult, onError);
+        } catch (error) {
             if (onError) {
                 onError(error);
             }
-            throw error;
+        } finally {
+            URL.revokeObjectURL(url);
         }
     }
 

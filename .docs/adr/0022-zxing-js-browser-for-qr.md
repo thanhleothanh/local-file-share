@@ -97,3 +97,4 @@ Since WebRTC signaling data (SDP + ICE candidates) can be 2-4KB, and QR codes ha
 - Connection secret in QR codes (ADR-0004)
 - QR compression with gzip + base64 (ADR-0012)
 - zxing-js/browser for QR code scanning (ADR-0016) — this document supersedes/expands on ADR-0016
+- Image upload as alternative QR input source (ADR-0031)

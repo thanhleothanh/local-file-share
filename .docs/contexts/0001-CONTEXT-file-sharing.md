@@ -14,6 +14,9 @@ The File Sharing context enables sending files between devices on the same local
 | **Queue** | A FIFO (First-In-First-Out) ordered list of files waiting to be sent over a connection. **Send-direction only** (ADR-0009): received files never enter the local send queue. |
 | **File Transfer** | The process of sending a file from one device to another, broken into chunks and transmitted over WebRTC |
 | **QR Handshake** | The two-QR code (ping-pong) process used to establish a WebRTC connection between two devices |
+| **QR input source** | The channel through which a QR code is delivered to the scanner: **camera** (live video via `getUserMedia`) or **image upload** (user-supplied file via file picker). Both sources are available at every scan point. The first source to deliver a valid result wins; the other is ignored. |
+| **Image upload scan** | The act of decoding a QR code from a user-supplied image file. The file is processed entirely in the browser via zxing-js/browser; no network round-trip. Failure (no QR found, invalid QR, oversize file, non-image) surfaces as a toast and the scanner pane remains visible. |
+| **Camera decline fallback** | The guarantee that if the user denies camera access, the scanner pane stays visible and the **Upload QR image** button remains active — the user can still connect by uploading a screenshot or photo of the QR. (ADR-0031) |
 | **Control Channel** | A WebRTC data channel dedicated to JSON signaling messages (file offers, accepts, etc.) |
 | **Data Channel** | A WebRTC data channel dedicated to binary file chunk transmission. Reliable + ordered; subject to SCTP backpressure (ADR-0025, ADR-0026). |
 | **SCTP backpressure** | The mechanism by which a sender paces chunks so the data channel's send buffer never overflows. The sender awaits `bufferedamountlow` before pushing the next chunk; threshold is 1 MiB. (ADR-0026) |
