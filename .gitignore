@@ -28,3 +28,7 @@ coverage/
 ./docs/prds/
 ./docs/issues/
 .issues/
+
+# Docker
+.docker/
+docker-compose.override.yml

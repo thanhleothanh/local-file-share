@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    image: local-file-share:latest
+    restart: unless-stopped
+    ports:
+      - "3000:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
